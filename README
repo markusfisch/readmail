@@ -1,0 +1,26 @@
+eMail client in BASH
+
+REQUIREMENTS
+
+A working GNU environment having bash, cat, clear, date, echo, grep,
+kill, less, mv, printf and rm.
+
+CONFIGURATION
+
+Create ".readmailrc" in your home directory and put the following lines
+into it (fill in the values in brackets):
+
+pop.host: (your POP3 server)
+pop.port: 110
+pop.account: (your POP3 account)
+pop.password: (your POP3 password)
+
+Append this block to configure your SMTP settings:
+
+smtp.host: (your SMTP server)
+smtp.port: 25
+smtp.account: (your SMTP account)
+
+You may also add a optional notification command:
+
+notification: xmessage "You've got mail" &

@@ -1,0 +1,1003 @@
+#!/bin/sh
+#
+#   O         ,-
+#  ° o    . -´  '     ,-
+#   °  .´        ` . ´,´
+#     ( °   ))     . (
+#      `-;_    . -´ `.`.
+#          `._'       ´
+#
+# Copyright (c) 2006 Markus Fisch <mf@markusfisch.de>
+#
+# Licensed under the MIT license:
+# http://www.opensource.org/licenses/mit-license.php
+#
+# @version 1.0.4
+#
+
+##
+# Open connection to pop box and login
+#
+# @global $POP_HOST
+# @global $POP_PORT
+# @global $POP_ACCOUNT
+# @global $POP_PASSWORD
+#
+function popOpen()
+{
+	exec 6<>/dev/tcp/$POP_HOST/$POP_PORT ||
+		return 1
+
+	local RESPONSE
+	read RESPONSE <&6
+
+	[[ "$RESPONSE" == +OK* ]] &&
+		popRequest "USER $POP_ACCOUNT" &&
+		popRequest "PASS $POP_PASSWORD" &&
+		return 0
+
+	popClose
+
+	echo "authentification failed !"
+	return 1
+}
+
+##
+# Logout and close connection to pop box
+#
+function popClose()
+{
+	popRequest "QUIT"
+
+	exec 6<&-
+	exec 6>&-
+}
+
+##
+# Send request and read succeeding response
+#
+# @param $REQUEST - some request
+#
+function popRequest()
+{
+	echo "$1" >&6
+	read RESPONSE <&6
+
+	[[ $RESPONSE == -ERR* ]] && return 1
+
+	return 0
+}
+
+##
+# Return current mailbox status
+#
+function getStatus()
+{
+	popOpen || return 1
+	popRequest "STAT" || (popClose; return 1)
+
+	read -d $CR STATUS MAILS SIZE <<EOF
+$RESPONSE
+EOF
+
+	popClose
+}
+
+##
+# List message(s)
+#
+# @param MESSAGES - list of index numbers or "NEW" to list only new messages
+#
+# @global $CACHE
+# @global $CR
+#
+function listMessages()
+{
+	local ONLYNEW=""
+	local MESSAGES=""
+
+	if [ "$1" == "NEW" ]; then
+		ONLYNEW="1"
+	else
+		MESSAGES="$1"
+	fi
+
+	popOpen || return
+	popRequest "UIDL" || (popClose; return)
+
+	local IDS=[]
+	MAILS=""
+
+	# download list of messages
+	while read -d $CR N ID <&6
+	do
+		[[ "$N" == . ]] && break
+
+		[ -z "$ID" ] && continue
+
+		MAILS="$MAILS $N"
+		IDS[$N]="$ID"
+	done
+
+	local MAILBOX=[]
+	touch "$CACHE"
+
+	[ "$MESSAGES" ] && MAILS="$MESSAGES"
+
+	# display list of messages
+	for N in $MAILS
+	do
+		RECORD="`grep "^${IDS[$N]}" "$CACHE"`"
+
+		local FROM=""
+		local SUBJECT=""
+
+		if [ "$RECORD" ]; then
+			TMP=${RECORD#*|}
+			TMP=${TMP#*|}
+			FROM=${TMP%%|*}
+			SUBJECT=${RECORD##*|}
+
+			MAILBOX[$N]="$RECORD"
+		else
+			popRequest "TOP $N 0" || break
+
+			FROM=""
+			SUBJECT=""
+
+			while read -d $CR RESPONSE <&6
+			do
+				case "$RESPONSE" in
+					.)
+						break
+						;;
+					From:*|from:*|FROM:*)
+						FROM="${RESPONSE#*:}"
+						trim FROM
+						;;
+					Subject:*|subject:*|SUBJECT:*)
+						SUBJECT="${RESPONSE#*:}"
+						trim SUBJECT
+						;;
+				esac
+			done
+
+			MAILBOX[$N]="${IDS[$N]}|0|$FROM|$SUBJECT"
+		fi
+
+		# skip message if it is in the cache already and ONLYNEW is set
+		[ "$ONLYNEW" ] && [ "$RECORD" ] && continue
+
+		printf "%3d: ${FROM:0:74}\n" "$N"
+		printf "     ${SUBJECT:0:74}\n"
+	done
+
+	popClose
+
+	# remove cache to get rid of messages that are no longer available
+	[ -z "$MESSAGES" ] && rm "$CACHE"
+
+	for (( N=${#MAILBOX[*]}; $N; N-- ))
+	do
+		# when not rebuild, check for existence first
+		[ "$MESSAGES" ] &&
+			grep "^${IDS[$N]}|" "$CACHE" &> /dev/null &&
+			continue
+
+		# skip empty sets
+		[ -z "${MAILBOX[$N]}" ] &&
+			continue
+
+		echo "${MAILBOX[$N]}" >> "$CACHE"
+	done
+}
+
+##
+# Display a message
+#
+# @param MESSAGE - message to list
+#
+# @global $CACHE
+# @global $LINES_VIEW
+# @global $CR
+#
+function readMessage()
+{
+	local MESSAGE="$1"
+	local N=0
+	local ID=""
+
+	[ -z "$MESSAGE" ] && return
+
+	popOpen || return
+
+	# get message id and confirm existence
+	popRequest "UIDL $MESSAGE" || (popClose; return)
+
+	read -d $CR OK N ID <<EOF
+$RESPONSE
+EOF
+
+	[ -z "$ID" ] && exit
+
+	popRequest "TOP $MESSAGE $LINES_VIEW" || (popClose; return)
+
+	local FROM=""
+	local TO=""
+	local SUBJECT=""
+	local DATE=""
+	local ENCODING=""
+	local BODY=""
+	local INHEADER=1
+
+	while read -d $CR RESPONSE <&6
+	do
+		[[ "$RESPONSE" == . ]] && break
+
+		[ -z "$RESPONSE" ] && INHEADER=0
+
+		if (( $INHEADER )); then
+			case "$RESPONSE" in
+				From:*|from:*|FROM:*)
+					FROM="${RESPONSE#*:}"
+					trim FROM
+					;;
+				To:*|to:*|TO:*)
+					TO="${RESPONSE#*:}"
+					trim TO
+					;;
+				Subject:*|subject:*|SUBJECT:*)
+					SUBJECT="${RESPONSE#*:}"
+					trim SUBJECT
+					;;
+				Date:*|date:*|DATE:*)
+					DATE="${RESPONSE#*:}"
+					trim DATE
+					;;
+				Content-transfer-encoding:*|\
+				Content-Transfer-Encoding:*|\
+				content-transfer-encoding:*)
+					ENCODING="${RESPONSE#*:}"
+					;;
+			esac
+		else
+			BODY="$BODY""$RESPONSE"$'\n'
+		fi
+	done
+
+	# mark message as read
+	if ! [ -f "$CACHE" ] ||
+		! grep "^$ID|" "$CACHE" &> /dev/null; then
+		echo "$ID|1|$FROM|$SUBJECT" >> "$CACHE"
+	else
+	(
+		local CACHECONTENT=`cat $CACHE`
+		local IFS="|"
+
+		rm "$CACHE"
+
+		while read MID READ FROM SUBJECT
+		do
+			[ $MID == $ID ] &&
+				READ=1
+
+			echo "$MID|$READ|$FROM|$SUBJECT" >> "$CACHE"
+		done << EOF
+$CACHECONTENT
+EOF
+	)
+	fi
+
+	popClose
+
+	[[ "$ENCODING" == *quoted-printable* ]] &&
+		BODY=`echo $BODY | decodeQuotedPrintable`
+
+	less << EOF
+$(printf "%-8s: %s\n" "From" "$FROM")
+$(printf "%-8s: %s\n" "To" "$TO")
+$(printf "%-8s: %s\n" "Subject" "$SUBJECT")
+$(printf "%-8s: %s\n" "Date" "$DATE")
+
+$(echo "$BODY")
+EOF
+}
+
+##
+# Read next new message
+#
+# @global $CACHE
+# @global $CR
+#
+function readNextMessage()
+{
+	# if no cache file exists try to display first message
+	if ! [ -f "$CACHE" ] ; then
+		getStatus || return
+		readMessage 1
+
+		return
+	fi
+
+	popOpen || return
+	popRequest "UIDL" || (popClose; return)
+
+	local NEXT=0
+
+	# find first unread
+	while read -d $CR N ID <&6
+	do
+		[[ "$N" == . ]] && break
+
+		[ -z "$ID" ] && continue
+
+		(( $NEXT )) ||
+			grep "^$ID|1|" "$CACHE" &> /dev/null ||
+			NEXT=$N
+	done
+
+	popClose
+
+	(( $NEXT )) &&
+		readMessage $NEXT
+}
+
+##
+# Check for new messages
+#
+# @global $CACHE
+# @global $CR
+#
+function getNewMessages()
+{
+	popOpen || return 1
+	popRequest "UIDL" || (popClose; return 1)
+
+	NEW_MAILS=0
+
+	while read -d $CR N ID <&6
+	do
+		[[ "$N" == . ]] && break
+
+		[ -z "$ID" ] && continue
+
+		if ! [ -f $CACHE ] ||
+			! grep "^$ID" "$CACHE" &> /dev/null; then
+			(( NEW_MAILS++ ))
+		fi
+	done
+
+	popClose
+}
+
+##
+# Download message to disk
+#
+# @param MESSAGE - message to file
+#
+# @global $CR
+#
+function fileMessage()
+{
+	MESSAGE="$1"
+
+	[ -z "$MESSAGE" ] && return
+
+	popOpen || return
+	popRequest "RETR $MESSAGE" || (popClose; return)
+
+	local DATE="$(date +%Y%m%d%H%M%S)"
+	local FILE="unknown-$DATE"
+
+	while read -d $CR RESPONSE <&6
+	do
+		[[ "$RESPONSE" == . ]] && break
+
+		case "$RESPONSE" in
+			From:*|from:*|FROM:*)
+				FROM="${RESPONSE#*:}"
+				;;
+		esac
+
+		echo "$RESPONSE" >> "$FILE"
+	done
+
+	popClose
+
+	FROM=${FROM#*<}
+	FROM=${FROM%>*}
+
+	trim FROM
+
+	[ "$FROM" ] && [ -f "$FILE" ] &&
+		mv "$FILE" "$FROM-$DATE"
+}
+
+##
+# Delete messages from server
+#
+# @param MESSAGES - list of indexes of messages to delete (optional)
+#
+# @global LF
+#
+function deleteMessages()
+{
+	local MESSAGES="$1"
+
+	if [ -z "$MESSAGES" ]; then
+		getStatus || return
+
+		for (( N=1; $N <= $MAILS; N++ )); do
+			MESSAGES="$N $MESSAGES"
+		done
+	fi
+
+	popOpen || return
+
+	for N in $MESSAGES; do
+		popRequest "DELE $N" || break
+	done
+
+	popClose
+}
+
+##
+# Open connection to smtp server and log on
+#
+# @global $SMTP_HOST
+# @global $SMTP_POST
+#
+function smtpOpen()
+{
+	exec 7<>/dev/tcp/$SMTP_HOST/$SMTP_PORT ||
+		return 1
+
+	local RESPONSE
+	read RESPONSE <&7
+
+	smtpRequest "HELO $SMTP_HOST" && return 0
+
+	smtpClose
+
+	return 1
+}
+
+##
+# Close connection to smtp server and log off
+#
+function smtpClose()
+{
+	smtpRequest "QUIT"
+
+	exec 7<&-
+	exec 7>&-
+}
+
+##
+# Send request and read succeeding response
+#
+# @param $REQUEST - some command
+#
+function smtpRequest()
+{
+	local REQUEST="$1"
+
+	echo "$1" >&7
+	read RESPONSE <&7
+
+	[[ $RESPONSE == [23]* ]] || return 1
+
+	return 0
+}
+
+##
+# Write a message
+#
+# @param TO - recipient of the message
+# @param SUBJECT - subject of the mail (optional)
+#
+# @global SMTP_HOST
+# @global SMTP_PORT
+# @global SMTP_ACCOUNT
+# @global CR
+#
+function writeMessage()
+{
+	local TO="$1"
+	local SUBJECT="$2"
+	local BODY=""
+
+	[ "$TO" ] && echo "To     : $TO"
+
+	while [ -z "$TO" ]
+	do
+		printf "To     : "
+		read TO
+	done
+
+	local RCPT="$TO"
+	local FROM="$SMTP_ACCOUNT"
+
+	if [[ "$RCPT" == *\<* ]] ; then
+		RCPT=${RCPT#*<}
+		RCPT=${RCPT%>*}
+
+		trim RCPT
+	fi
+
+	if [[ "$FROM" == *\<* ]] ; then
+		FROM=${FROM#*<}
+		FROM=${FROM%>*}
+
+		trim FROM
+	fi
+
+	if [ -z "$SUBJECT" ]; then
+		printf "Subject: "
+		read SUBJECT
+	else
+		echo "Subject: $SUBJECT"
+	fi
+
+	while [ -z "$BODY" ]
+	do
+		echo "Message: (hit CTRL-D when finished)"
+		BODY="`cat`"
+	done
+
+	smtpOpen || return
+
+	smtpRequest "MAIL FROM: <$FROM>" &&
+		smtpRequest "RCPT TO: <$RCPT>" &&
+		smtpRequest "DATA" &&
+		smtpRequest "From: $SMTP_ACCOUNT
+To: $TO
+Subject: $SUBJECT
+Date: $(export LANG=; date -R)
+MIME-Version: 1.0
+Content-Type: text/plain;
+Content-Transfer-Encoding: 8bit;
+
+$(echo "$BODY" | while read -n 76 LINE; do echo "$LINE"; done)
+." &&
+		echo "message sent"
+
+	smtpClose
+}
+
+##
+# Answer a message
+#
+# @param N - index of message
+#
+# @global $CR
+#
+function answerMessage()
+{
+	local N="$1"
+
+	popOpen || return
+	popRequest "TOP $N 0" || (popClose; return)
+
+	local FROM=""
+	local SUBJECT=""
+
+	while read -d $CR RESPONSE <&6
+	do
+		[[ "$RESPONSE" == . ]] && break
+
+		case "$RESPONSE" in
+			From:*|from:*|FROM:*)
+				FROM="${RESPONSE#*:}"
+				;;
+			Subject:*|subject:*|SUBJECT:*)
+				SUBJECT="${RESPONSE#*:}"
+				;;
+		esac
+	done
+
+	popClose
+
+	FROM=${FROM#*<}
+	FROM=${FROM%>*}
+
+	trim FROM
+	trim SUBJECT
+
+	[ "$FROM" ] || return
+
+	writeMessage "$FROM" "Re: $SUBJECT"
+}
+
+##
+# Decode quoted-printable-encoded stream
+#
+function decodeQuotedPrintable()
+{
+	local IFS=
+	local T=
+	local ENCODED=0
+
+	while read -r -n 1 -d $'\r' C
+	do
+		[ "$C" == '=' ] &&
+			ENCODED=2 &&
+			CODE="" &&
+			continue
+
+		(( !$ENCODED )) &&
+			T="$T""$C" &&
+			continue
+
+		CODE=$CODE$C
+		(( ENCODED-- ))
+
+		(( ! $ENCODED )) &&
+			eval "C=\$'\\x$CODE'" &&
+			T="$T""$C"
+	done
+
+	echo $T
+}
+
+##
+# Trim leading whitespace
+#
+# @param SYMBOL - name of variable
+#
+function trim()
+{
+	eval "$1=\$(echo \$$1 | sed -e s_^[\\ \$'\t']*__)"
+}
+
+##
+# Parse a line of blank seperated numbers and return a possibly expanded list
+#
+# @param CMD - a command line containing indexes
+# @param SORTED - sort numbers reversely if set (optional)
+#
+function parseNumbers()
+{
+	local CMD="$1"
+	local SORTED="$2"
+
+	NUMBERS=""
+
+	# get number of mails
+	getStatus || return
+
+	for N in $CMD
+	do
+		[[ "$N" == [0-9-]* ]] || continue
+
+		local START=${N%-*}
+		local STOP=${N#*-}
+
+		# intercept 0 and "" (when skipped)
+		if [ -z "$START" ] ||
+			(( ! $START )); then
+			START=1
+		fi
+
+		# intercept 0, "" and check if valid
+		if [ -z "$STOP" ] ||
+			(( ! "$STOP" )) ||
+			(( $STOP > $MAILS )); then
+			STOP=$MAILS
+		fi
+
+		(( $START == $STOP )) &&
+			NUMBERS=$NUMBERS$N$LF &&
+			continue
+
+		for (( C=$START; $C <= $STOP; C++ ))
+		do
+			NUMBERS=$NUMBERS$C$LF
+		done
+	done
+
+	[ $SORTED ] &&
+		NUMBERS="`echo "$NUMBERS" | sort -nr`"
+}
+
+##
+# Execute a command
+#
+# @param CMD - a command
+#
+function handleCommand()
+{
+	local CMD="$1"
+
+	case "$CMD" in
+		h*|\?*)
+			echo "  p(eek)                 peek for new messages"
+			echo "  P(eek)                 peek continuously & notify on mail"
+			echo "  s(tatus)               request mailbox status"
+			echo "  n(ew)                  list (only) new messages"
+			echo "  l(ist) [N[-N]]...      list messages"
+			echo "  r(ead) [N[-N]]...      read message"
+			echo "  f(ile) N[-N]...        file message to current directory"
+			echo "  d(elete) N[-N]...|all  remove message"
+			echo "  a(nswer) N             answer message"
+			echo "  w(rite) ADDRESS        write a message to ADDRESS"
+			echo "  c(lear)                clear screen"
+			echo "  h(elp)                 show this info"
+			echo "  v(ersion)              show version"
+			echo "  q(uit)                 quit"
+			echo "  Q(uit)                 quit background P(eek) instance"
+			;;
+		v*)
+			local VERSION=`grep "^#[ \t]*@version" $0`
+			echo ${VERSION##* }
+			;;
+		p*)
+			getNewMessages
+
+			echo "$NEW_MAILS new mails"
+			;;
+		P*)
+			[ -z "$NOTIFICATION" ] || 
+				[ -z "$INTERVAL" ] &&
+				echo "missing notification command !" && 
+				return
+
+			[ -f "$PIDFILE" ] &&
+				kill `cat $PIDFILE` &> /dev/null
+
+			while true
+			do
+				# this will NOT mark messages as listed, so you need to call
+				# "readmail l q" in your notification if you're using this
+				# script just to be notified, this wouldn't really be a peek
+				# because it changes the cache
+				getNewMessages || break
+
+				# allow a list of commands to be executed
+				(( $NEW_MAILS > 0 )) && 
+					/bin/sh << EOF
+#!/bin/sh
+$NOTIFICATION
+EOF
+
+				sleep $INTERVAL
+			done &
+
+			echo "$!" > "$PIDFILE"
+			exit
+			;;
+		s*)
+			getStatus
+
+			echo "$MAILS mails ($SIZE bytes)"
+			;;
+		n*)
+			listMessages "NEW"
+			;;
+		l*)
+			! [[ $CMD == l*" "* ]] &&
+				listMessages &&
+				return
+
+			parseNumbers "$CMD"
+
+			[ "$NUMBERS" ] &&
+				listMessages "$NUMBERS"
+			;;
+		d*)
+			case $CMD in
+				*" all")
+					deleteMessages
+					;;
+				*)
+					# because the following indexes will change after
+					# a message is deleted it is very important to
+					# sort list reverse
+					parseNumbers "$CMD" 1
+
+					[ "$NUMBERS" ] &&
+						deleteMessages "$NUMBERS"
+					;;
+			esac
+			;;
+		r*)
+			! [[ $CMD == r*" "* ]] &&
+				readNextMessage &&
+				return
+
+			parseNumbers "$CMD"
+
+			[ "$NUMBERS" ] &&
+				for N in $NUMBERS
+				do
+					clear
+					readMessage $N
+				done
+			;;
+		f*)
+			parseNumbers "$CMD"
+
+			[ "$NUMBERS" ] &&
+				for N in $NUMBERS
+				do
+					fileMessage $N
+				done
+			;;
+		a*)
+			! [[ $CMD == a*" "* ]] &&
+				return
+
+			local N=${CMD#* }
+
+			answerMessage $N
+			;;
+		w*)
+			local TO=""
+
+			[[ $CMD == w*" "* ]] &&
+				TO=${CMD#* }
+
+			writeMessage $TO
+			;;
+		c*)
+			clear
+			;;
+		q*|x*|exit)
+			exit
+			;;
+		Q*)
+			[ -f "$PIDFILE" ] &&
+				kill `cat $PIDFILE` &> /dev/null &&
+				rm "$PIDFILE"
+
+			exit
+			;;
+		*)
+			[ "$CMD" ] &&
+				echo "unknown command '$CMD'" &&
+				return
+
+			readNextMessage
+			;;
+	esac
+}
+
+##
+# Echo setting from configuration file
+#
+# @param $1 - label of setting to retrieve
+#
+# @global CONFIG
+#
+function getSetting()
+{
+	[ -f "$CONFIG" ] || return
+
+	local SETTING="`grep -i "^$1:" "$CONFIG"`"
+
+	SETTING=${SETTING#*:}
+	trim SETTING
+
+	echo "$SETTING"
+}
+
+##
+# Ask user for a setting
+#
+# @param SETTING - name of the setting
+# @param QUESTION - question phrase
+# @param DEFAULT - default value in case user skips this setting
+#
+# @global CONFIG
+#
+function askUserFor()
+{
+	local SETTING="$1"
+	local QUESTION="$2"
+	local DEFAULT="$3"
+	local PRESET=""
+
+	[ "$DEFAULT" ] && PRESET=" [$DEFAULT]"
+
+	local ANSWER=""
+
+	while [ -z "$ANSWER" ]
+	do
+		printf "$QUESTION$PRESET: "
+		read ANSWER
+
+		[ "$DEFAULT" ] &&
+			[ -z "$ANSWER" ] &&
+			ANSWER="$DEFAULT"
+	done
+
+	echo "$SETTING: $ANSWER" >> "$CONFIG"
+}
+
+##
+# Read configuration and initialize
+#
+readonly CONFIG="$HOME/.`basename $0`rc"
+readonly CACHE="$HOME/.`basename $0`cache"
+readonly CR=$'\r'
+readonly LF=$'\n'
+
+readonly POP_HOST=${POP_HOST:="`getSetting "pop.host"`"}
+readonly POP_PORT=${POP_PORT:="`getSetting "pop.port"`"}
+readonly POP_ACCOUNT=${POP_ACCOUNT:="`getSetting "pop.account"`"}
+readonly POP_PASSWORD=${POP_PASSWORD:="`getSetting "pop.password"`"}
+
+readonly SMTP_HOST=${SMTP_HOST:="`getSetting "smtp.host"`"}
+readonly SMTP_PORT=${SMTP_PORT:="`getSetting "smtp.port"`"}
+readonly SMTP_ACCOUNT=${SMTP_ACCOUNT:="`getSetting "smtp.account"`"}
+
+readonly PIDFILE="/tmp/.`basename $0`pid-$USER"
+readonly NOTIFICATION=${NOTIFICATION:="`getSetting "notification"`"}
+readonly INTERVAL=${INTERVAL:=60}
+
+readonly LINES_VIEW=${LINES_VIEW:=256}
+
+if [ -z "$POP_HOST" ] ||
+	[ -z "$POP_PORT" ] ||
+	[ -z "$POP_ACCOUNT" ] ||
+	[ -z "$POP_PASSWORD" ] ||
+	[ -z "$SMTP_HOST" ] ||
+	[ -z "$SMTP_PORT" ] ||
+	[ -z "$SMTP_ACCOUNT" ]; then
+	if [ -f "$CONFIG" ]; then
+		cat << EOF
+Missing settings in '$CONFIG' !
+Do you like to change/complete your configuration now ([yes]/no)
+EOF
+	else
+		cat << EOF
+Missing configuration file ! This seems to be the first time you are running
+this script. Do you like to set up a configuration now ? ([yes]/no)
+EOF
+	fi
+
+	read ANSWER
+
+	case "$ANSWER" in
+		y*|Y*|"")
+			# remove any previous configuration
+			[ -f "$CONFIG" ] && rm "$CONFIG"
+			;;
+		*)
+			exit
+			;;
+	esac
+
+	askUserFor "pop.host" "POP3 host" "$POP_HOST"
+	askUserFor "pop.port" "POP3 port" 110
+	askUserFor "pop.account" "POP3 account" "$POP_ACCOUNT"
+	askUserFor "pop.password" "POP3 password" "$POP_PASSWORD"
+	askUserFor "smtp.host" "SMTP host" "$SMTP_HOST"
+	askUserFor "smtp.port" "SMTP port" 25
+	askUserFor "smtp.account" "SMTP account" "$SMTP_ACCOUNT"
+
+	echo "Setup complete !"
+
+	# because exec will not execute symlinks
+	$0 $@
+	exit
+fi
+
+##
+# Process command line arguments
+#
+for CMD in $@
+do
+	handleCommand "$CMD"
+done
+
+##
+# Interactive operation
+#
+for (( ;; ))
+do
+	printf "$POP_ACCOUNT> "
+	read CMD
+
+	handleCommand "$CMD"
+done
