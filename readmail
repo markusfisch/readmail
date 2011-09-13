@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 #
 #   O         ,-
 #  ° o    . -´  '     ,-
@@ -12,7 +12,7 @@
 # Licensed under the MIT license:
 # http://www.opensource.org/licenses/mit-license.php
 #
-# @version 1.0.4
+# @version 1.0.5
 #
 
 ##
@@ -152,12 +152,10 @@ function listMessages()
 						break
 						;;
 					From:*|from:*|FROM:*)
-						FROM="${RESPONSE#*:}"
-						trim FROM
+						FROM=`echo ${RESPONSE#*:}`
 						;;
 					Subject:*|subject:*|SUBJECT:*)
-						SUBJECT="${RESPONSE#*:}"
-						trim SUBJECT
+						SUBJECT=`echo ${RESPONSE#*:}`
 						;;
 				esac
 			done
@@ -239,20 +237,16 @@ EOF
 		if (( $INHEADER )); then
 			case "$RESPONSE" in
 				From:*|from:*|FROM:*)
-					FROM="${RESPONSE#*:}"
-					trim FROM
+					FROM=`echo ${RESPONSE#*:}`
 					;;
 				To:*|to:*|TO:*)
-					TO="${RESPONSE#*:}"
-					trim TO
+					TO=`echo ${RESPONSE#*:}`
 					;;
 				Subject:*|subject:*|SUBJECT:*)
-					SUBJECT="${RESPONSE#*:}"
-					trim SUBJECT
+					SUBJECT=`echo ${RESPONSE#*:}`
 					;;
 				Date:*|date:*|DATE:*)
-					DATE="${RESPONSE#*:}"
-					trim DATE
+					DATE=`echo ${RESPONSE#*:}`
 					;;
 				Content-transfer-encoding:*|\
 				Content-Transfer-Encoding:*|\
@@ -271,7 +265,7 @@ EOF
 		echo "$ID|1|$FROM|$SUBJECT" >> "$CACHE"
 	else
 	(
-		local CACHECONTENT=`cat $CACHE`
+		local CACHECONTENT=`< $CACHE`
 		local IFS="|"
 
 		rm "$CACHE"
@@ -405,9 +399,7 @@ function fileMessage()
 	popClose
 
 	FROM=${FROM#*<}
-	FROM=${FROM%>*}
-
-	trim FROM
+	FROM=`echo ${FROM%>*}`
 
 	[ "$FROM" ] && [ -f "$FILE" ] &&
 		mv "$FILE" "$FROM-$DATE"
@@ -520,16 +512,12 @@ function writeMessage()
 
 	if [[ "$RCPT" == *\<* ]] ; then
 		RCPT=${RCPT#*<}
-		RCPT=${RCPT%>*}
-
-		trim RCPT
+		RCPT=`echo ${RCPT%>*}`
 	fi
 
 	if [[ "$FROM" == *\<* ]] ; then
 		FROM=${FROM#*<}
-		FROM=${FROM%>*}
-
-		trim FROM
+		FROM=`echo ${FROM%>*}`
 	fi
 
 	if [ -z "$SUBJECT" ]; then
@@ -588,10 +576,10 @@ function answerMessage()
 
 		case "$RESPONSE" in
 			From:*|from:*|FROM:*)
-				FROM="${RESPONSE#*:}"
+				FROM=`echo ${RESPONSE#*:}`
 				;;
 			Subject:*|subject:*|SUBJECT:*)
-				SUBJECT="${RESPONSE#*:}"
+				SUBJECT=`echo ${RESPONSE#*:}`
 				;;
 		esac
 	done
@@ -599,10 +587,7 @@ function answerMessage()
 	popClose
 
 	FROM=${FROM#*<}
-	FROM=${FROM%>*}
-
-	trim FROM
-	trim SUBJECT
+	FROM=`echo ${FROM%>*}`
 
 	[ "$FROM" ] || return
 
@@ -638,16 +623,6 @@ function decodeQuotedPrintable()
 	done
 
 	echo $T
-}
-
-##
-# Trim leading whitespace
-#
-# @param SYMBOL - name of variable
-#
-function trim()
-{
-	eval "$1=\$(echo \$$1 | sed -e s_^[\\ \$'\t']*__)"
 }
 
 ##
@@ -737,13 +712,13 @@ function handleCommand()
 			echo "$NEW_MAILS new mails"
 			;;
 		P*)
-			[ -z "$NOTIFICATION" ] || 
+			[ -z "$NOTIFICATION" ] ||
 				[ -z "$INTERVAL" ] &&
-				echo "missing notification command !" && 
+				echo "missing notification command !" &&
 				return
 
 			[ -f "$PIDFILE" ] &&
-				kill `cat $PIDFILE` &> /dev/null
+				kill `< $PIDFILE` &> /dev/null
 
 			while true
 			do
@@ -754,7 +729,7 @@ function handleCommand()
 				getNewMessages || break
 
 				# allow a list of commands to be executed
-				(( $NEW_MAILS > 0 )) && 
+				(( $NEW_MAILS > 0 )) &&
 					/bin/sh << EOF
 #!/bin/sh
 $NOTIFICATION
@@ -847,7 +822,7 @@ EOF
 			;;
 		Q*)
 			[ -f "$PIDFILE" ] &&
-				kill `cat $PIDFILE` &> /dev/null &&
+				kill `< $PIDFILE` &> /dev/null &&
 				rm "$PIDFILE"
 
 			exit
@@ -876,9 +851,8 @@ function getSetting()
 	local SETTING="`grep -i "^$1:" "$CONFIG"`"
 
 	SETTING=${SETTING#*:}
-	trim SETTING
 
-	echo "$SETTING"
+	echo $SETTING
 }
 
 ##
