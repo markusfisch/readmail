@@ -7,23 +7,23 @@
 #      `-;_    . -´ `.`.
 #          `._'       ´
 #
-# Copyright (c) 2006 Markus Fisch <mf@markusfisch.de>
+# Copyright (c) 2006,2011 Markus Fisch <mf@markusfisch.de>
 #
 # Licensed under the MIT license:
 # http://www.opensource.org/licenses/mit-license.php
 #
-# @version 1.0.5
+# @version 1.1.0
 #
 
 ##
 # Open connection to pop box and login
 #
-# @global $POP_HOST
-# @global $POP_PORT
-# @global $POP_ACCOUNT
-# @global $POP_PASSWORD
+# @global POP_HOST
+# @global POP_PORT
+# @global POP_ACCOUNT
+# @global POP_PASSWORD
 #
-function popOpen()
+popOpen()
 {
 	exec 6<>/dev/tcp/$POP_HOST/$POP_PORT ||
 		return 1
@@ -45,7 +45,7 @@ function popOpen()
 ##
 # Logout and close connection to pop box
 #
-function popClose()
+popClose()
 {
 	popRequest "QUIT"
 
@@ -56,9 +56,9 @@ function popClose()
 ##
 # Send request and read succeeding response
 #
-# @param $REQUEST - some request
+# @param 1 - some request
 #
-function popRequest()
+popRequest()
 {
 	echo "$1" >&6
 	read RESPONSE <&6
@@ -71,7 +71,7 @@ function popRequest()
 ##
 # Return current mailbox status
 #
-function getStatus()
+getStatus()
 {
 	popOpen || return 1
 	popRequest "STAT" || (popClose; return 1)
@@ -86,15 +86,15 @@ EOF
 ##
 # List message(s)
 #
-# @param MESSAGES - list of index numbers or "NEW" to list only new messages
+# @param 1 - list of index numbers or "NEW" to list only new messages
 #
-# @global $CACHE
-# @global $CR
+# @global CACHE
+# @global CR
 #
-function listMessages()
+listMessages()
 {
-	local ONLYNEW=""
-	local MESSAGES=""
+	local ONLYNEW=
+	local MESSAGES=
 
 	if [ "$1" == "NEW" ]; then
 		ONLYNEW="1"
@@ -106,7 +106,7 @@ function listMessages()
 	popRequest "UIDL" || (popClose; return)
 
 	local IDS=[]
-	MAILS=""
+	MAILS=
 
 	# download list of messages
 	while read -d $CR N ID <&6
@@ -129,8 +129,8 @@ function listMessages()
 	do
 		RECORD="`grep "^${IDS[$N]}" "$CACHE"`"
 
-		local FROM=""
-		local SUBJECT=""
+		local FROM=
+		local SUBJECT=
 
 		if [ "$RECORD" ]; then
 			TMP=${RECORD#*|}
@@ -142,8 +142,8 @@ function listMessages()
 		else
 			popRequest "TOP $N 0" || break
 
-			FROM=""
-			SUBJECT=""
+			FROM=
+			SUBJECT=
 
 			while read -d $CR RESPONSE <&6
 			do
@@ -193,17 +193,17 @@ function listMessages()
 ##
 # Display a message
 #
-# @param MESSAGE - message to list
+# @param 1 - message to list
 #
-# @global $CACHE
-# @global $LINES_VIEW
-# @global $CR
+# @global CACHE
+# @global LINES_VIEW
+# @global CR
 #
-function readMessage()
+readMessage()
 {
 	local MESSAGE="$1"
 	local N=0
-	local ID=""
+	local ID=
 
 	[ -z "$MESSAGE" ] && return
 
@@ -220,12 +220,12 @@ EOF
 
 	popRequest "TOP $MESSAGE $LINES_VIEW" || (popClose; return)
 
-	local FROM=""
-	local TO=""
-	local SUBJECT=""
-	local DATE=""
-	local ENCODING=""
-	local BODY=""
+	local FROM=
+	local TO=
+	local SUBJECT=
+	local DATE=
+	local ENCODING=
+	local BODY=
 	local INHEADER=1
 
 	while read -d $CR RESPONSE <&6
@@ -288,22 +288,22 @@ EOF
 		BODY=`echo $BODY | decodeQuotedPrintable`
 
 	less << EOF
-$(printf "%-8s: %s\n" "From" "$FROM")
-$(printf "%-8s: %s\n" "To" "$TO")
-$(printf "%-8s: %s\n" "Subject" "$SUBJECT")
-$(printf "%-8s: %s\n" "Date" "$DATE")
+`printf "%-8s: %s\n" "From" "$FROM"`
+`printf "%-8s: %s\n" "To" "$TO"`
+`printf "%-8s: %s\n" "Subject" "$SUBJECT"`
+`printf "%-8s: %s\n" "Date" "$DATE"`
 
-$(echo "$BODY")
+`echo "$BODY"`
 EOF
 }
 
 ##
 # Read next new message
 #
-# @global $CACHE
-# @global $CR
+# @global CACHE
+# @global CR
 #
-function readNextMessage()
+readNextMessage()
 {
 	# if no cache file exists try to display first message
 	if ! [ -f "$CACHE" ] ; then
@@ -339,10 +339,10 @@ function readNextMessage()
 ##
 # Check for new messages
 #
-# @global $CACHE
-# @global $CR
+# @global CACHE
+# @global CR
 #
-function getNewMessages()
+getNewMessages()
 {
 	popOpen || return 1
 	popRequest "UIDL" || (popClose; return 1)
@@ -367,11 +367,11 @@ function getNewMessages()
 ##
 # Download message to disk
 #
-# @param MESSAGE - message to file
+# @param 1 - message to file
 #
-# @global $CR
+# @global CR
 #
-function fileMessage()
+fileMessage()
 {
 	MESSAGE="$1"
 
@@ -380,7 +380,7 @@ function fileMessage()
 	popOpen || return
 	popRequest "RETR $MESSAGE" || (popClose; return)
 
-	local DATE="$(date +%Y%m%d%H%M%S)"
+	local DATE="`date +%Y%m%d%H%M%S`"
 	local FILE="unknown-$DATE"
 
 	while read -d $CR RESPONSE <&6
@@ -408,11 +408,11 @@ function fileMessage()
 ##
 # Delete messages from server
 #
-# @param MESSAGES - list of indexes of messages to delete (optional)
+# @param 1 - list of indexes of messages to delete (optional)
 #
 # @global LF
 #
-function deleteMessages()
+deleteMessages()
 {
 	local MESSAGES="$1"
 
@@ -436,10 +436,12 @@ function deleteMessages()
 ##
 # Open connection to smtp server and log on
 #
-# @global $SMTP_HOST
-# @global $SMTP_POST
+# @global SMTP_HOST
+# @global SMTP_POST
+# @global SMTP_ACCOUNT
+# @global SMTP_PASSWORD
 #
-function smtpOpen()
+smtpOpen()
 {
 	exec 7<>/dev/tcp/$SMTP_HOST/$SMTP_PORT ||
 		return 1
@@ -447,7 +449,71 @@ function smtpOpen()
 	local RESPONSE
 	read RESPONSE <&7
 
-	smtpRequest "HELO $SMTP_HOST" && return 0
+	if [ "$SMTP_PASSWORD" ]; then
+		which base64 &>/dev/null ||
+			##
+			# Base64 encoder, this is a (very slow) fallback for systems
+			# that lack base64
+			#
+			base64()
+			{
+				local SET="ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+				local DATA=`cat`
+				local L=${#DATA}
+				local W=0
+				local N
+
+				for (( N=0; N<L; N+=3 ))
+				do
+					local V=$(( `printf '%d' "'${DATA:$N:1}"` << 16 | \
+						`printf '%d' "'${DATA:$N+1:1}"` << 8 | \
+						`printf '%d' "'${DATA:$N+2:1}"` ))
+
+					local R=$(( L-N ))
+					local M
+
+					if (( R == 1 ))
+					then
+						M=2
+					elif (( R == 2 ))
+					then
+						M=3
+					else
+						M=4
+					fi
+
+					local B
+					local S
+
+					for (( B=0, S=18; B<M; ++B, S-=6 ))
+					do
+						local C=$(( V >> S & 63 ))
+
+						echo -n ${SET:$C:1}
+
+						(( ++W > 75 )) && {
+							echo
+							W=0
+						}
+					done
+
+					for (( B=0, M=4-M; B<M; ++B ))
+					do
+						echo -n "="
+					done
+				done
+
+				echo
+			}
+
+		smtpRequest "EHLO $SMTP_HOST" &&
+			smtpRequest "AUTH LOGIN" &&
+			smtpRequest "`echo -n "$SMTP_ACCOUNT" | base64`" &&
+			smtpRequest "`echo -n "$SMTP_PASSWORD" | base64`" &&
+			return 0
+	else
+		smtpRequest "HELO $SMTP_HOST" && return 0
+	fi
 
 	smtpClose
 
@@ -457,7 +523,7 @@ function smtpOpen()
 ##
 # Close connection to smtp server and log off
 #
-function smtpClose()
+smtpClose()
 {
 	smtpRequest "QUIT"
 
@@ -468,14 +534,18 @@ function smtpClose()
 ##
 # Send request and read succeeding response
 #
-# @param $REQUEST - some command
+# @param 1 - some command
 #
-function smtpRequest()
+smtpRequest()
 {
-	local REQUEST="$1"
-
 	echo "$1" >&7
-	read RESPONSE <&7
+
+	for (( ;; ))
+	do
+		read RESPONSE <&7
+
+		[ "${RESPONSE:3:1}" != "-" ] && break
+	done
 
 	[[ $RESPONSE == [23]* ]] || return 1
 
@@ -485,19 +555,19 @@ function smtpRequest()
 ##
 # Write a message
 #
-# @param TO - recipient of the message
-# @param SUBJECT - subject of the mail (optional)
+# @param 1 - recipient of the message
+# @param 2 - subject of the mail (optional)
 #
 # @global SMTP_HOST
 # @global SMTP_PORT
 # @global SMTP_ACCOUNT
 # @global CR
 #
-function writeMessage()
+writeMessage()
 {
 	local TO="$1"
 	local SUBJECT="$2"
-	local BODY=""
+	local BODY=
 
 	[ "$TO" ] && echo "To     : $TO"
 
@@ -541,34 +611,36 @@ function writeMessage()
 		smtpRequest "From: $SMTP_ACCOUNT
 To: $TO
 Subject: $SUBJECT
-Date: $(export LANG=; date -R)
+Date: `export LANG=; date -R`
 MIME-Version: 1.0
 Content-Type: text/plain;
 Content-Transfer-Encoding: 8bit;
 
-$(echo "$BODY" | while read -n 76 LINE; do echo "$LINE"; done)
+`echo "$BODY" | while read -n 76 LINE; do echo "$LINE"; done`
 ." &&
-		echo "message sent"
+		smtpClose &&
+		return
 
+	echo "error: message could NOT be sent"
 	smtpClose
 }
 
 ##
 # Answer a message
 #
-# @param N - index of message
+# @param 1 - index of message
 #
-# @global $CR
+# @global CR
 #
-function answerMessage()
+answerMessage()
 {
 	local N="$1"
 
 	popOpen || return
 	popRequest "TOP $N 0" || (popClose; return)
 
-	local FROM=""
-	local SUBJECT=""
+	local FROM=
+	local SUBJECT=
 
 	while read -d $CR RESPONSE <&6
 	do
@@ -597,7 +669,7 @@ function answerMessage()
 ##
 # Decode quoted-printable-encoded stream
 #
-function decodeQuotedPrintable()
+decodeQuotedPrintable()
 {
 	local IFS=
 	local T=
@@ -628,15 +700,15 @@ function decodeQuotedPrintable()
 ##
 # Parse a line of blank seperated numbers and return a possibly expanded list
 #
-# @param CMD - a command line containing indexes
-# @param SORTED - sort numbers reversely if set (optional)
+# @param 1 - a command line containing indexes
+# @param 2 - sort numbers reversely if set (optional)
 #
-function parseNumbers()
+parseNumbers()
 {
 	local CMD="$1"
 	local SORTED="$2"
 
-	NUMBERS=""
+	NUMBERS=
 
 	# get number of mails
 	getStatus || return
@@ -678,9 +750,9 @@ function parseNumbers()
 ##
 # Execute a command
 #
-# @param CMD - a command
+# @param 1 - a command
 #
-function handleCommand()
+handleCommand()
 {
 	local CMD="$1"
 
@@ -730,8 +802,8 @@ function handleCommand()
 
 				# allow a list of commands to be executed
 				(( $NEW_MAILS > 0 )) &&
-					/bin/sh << EOF
-#!/bin/sh
+					/bin/bash << EOF
+#!/bin/bash
 $NOTIFICATION
 EOF
 
@@ -807,7 +879,7 @@ EOF
 			answerMessage $N
 			;;
 		w*)
-			local TO=""
+			local TO=
 
 			[[ $CMD == w*" "* ]] &&
 				TO=${CMD#* }
@@ -840,11 +912,11 @@ EOF
 ##
 # Echo setting from configuration file
 #
-# @param $1 - label of setting to retrieve
+# @param 1 - label of setting to retrieve
 #
 # @global CONFIG
 #
-function getSetting()
+getSetting()
 {
 	[ -f "$CONFIG" ] || return
 
@@ -858,22 +930,22 @@ function getSetting()
 ##
 # Ask user for a setting
 #
-# @param SETTING - name of the setting
-# @param QUESTION - question phrase
-# @param DEFAULT - default value in case user skips this setting
+# @param 1 - name of the setting
+# @param 2 - question phrase
+# @param 3 - default value in case user skips this setting
 #
 # @global CONFIG
 #
-function askUserFor()
+askUserFor()
 {
 	local SETTING="$1"
 	local QUESTION="$2"
 	local DEFAULT="$3"
-	local PRESET=""
+	local PRESET=
 
 	[ "$DEFAULT" ] && PRESET=" [$DEFAULT]"
 
-	local ANSWER=""
+	local ANSWER=
 
 	while [ -z "$ANSWER" ]
 	do
@@ -904,6 +976,7 @@ readonly POP_PASSWORD=${POP_PASSWORD:="`getSetting "pop.password"`"}
 readonly SMTP_HOST=${SMTP_HOST:="`getSetting "smtp.host"`"}
 readonly SMTP_PORT=${SMTP_PORT:="`getSetting "smtp.port"`"}
 readonly SMTP_ACCOUNT=${SMTP_ACCOUNT:="`getSetting "smtp.account"`"}
+readonly SMTP_PASSWORD=${SMTP_PASSWORD:="`getSetting "smtp.password"`"}
 
 readonly PIDFILE="/tmp/.`basename $0`pid-$USER"
 readonly NOTIFICATION=${NOTIFICATION:="`getSetting "notification"`"}
@@ -949,6 +1022,7 @@ EOF
 	askUserFor "smtp.host" "SMTP host" "$SMTP_HOST"
 	askUserFor "smtp.port" "SMTP port" 25
 	askUserFor "smtp.account" "SMTP account" "$SMTP_ACCOUNT"
+	askUserFor "smtp.password" "SMTP password" "$SMTP_PASSWORD"
 
 	echo "Setup complete !"
 
