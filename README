@@ -20,6 +20,7 @@ Append this block to configure your SMTP settings:
 smtp.host: (your SMTP server)
 smtp.port: 25
 smtp.account: (your SMTP account)
+smtp.password: (your SMTP password, this is optional)
 
 You may also add a optional notification command:
 
