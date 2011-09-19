@@ -453,14 +453,13 @@ smtpOpen()
 		which base64 &>/dev/null ||
 			##
 			# Base64 encoder, this is a (very slow) fallback for systems
-			# that lack base64
+			# that lack base64 (like OS X, 2011)
 			#
 			base64()
 			{
 				local SET="ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
 				local DATA=`cat`
 				local L=${#DATA}
-				local W=0
 				local N
 
 				for (( N=0; N<L; N+=3 ))
@@ -490,11 +489,6 @@ smtpOpen()
 						local C=$(( V >> S & 63 ))
 
 						echo -n ${SET:$C:1}
-
-						(( ++W > 75 )) && {
-							echo
-							W=0
-						}
 					done
 
 					for (( B=0, M=4-M; B<M; ++B ))
@@ -611,7 +605,7 @@ writeMessage()
 		smtpRequest "From: $SMTP_ACCOUNT
 To: $TO
 Subject: $SUBJECT
-Date: `export LANG=; date -R`
+Date: `export LANG=; date +"%a, %d %b %Y %H:%M:%S %z"`
 MIME-Version: 1.0
 Content-Type: text/plain;
 Content-Transfer-Encoding: 8bit;
