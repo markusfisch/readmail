@@ -450,56 +450,6 @@ smtpOpen()
 	read RESPONSE <&7
 
 	if [ "$SMTP_PASSWORD" ]; then
-		which base64 &>/dev/null ||
-			##
-			# Base64 encoder, this is a (very slow) fallback for systems
-			# that lack base64 (like OS X, 2011)
-			#
-			base64()
-			{
-				local SET="ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
-				local DATA=`cat`
-				local L=${#DATA}
-				local N
-
-				for (( N=0; N<L; N+=3 ))
-				do
-					local V=$(( `printf '%d' "'${DATA:$N:1}"` << 16 | \
-						`printf '%d' "'${DATA:$N+1:1}"` << 8 | \
-						`printf '%d' "'${DATA:$N+2:1}"` ))
-
-					local R=$(( L-N ))
-					local M
-
-					if (( R == 1 ))
-					then
-						M=2
-					elif (( R == 2 ))
-					then
-						M=3
-					else
-						M=4
-					fi
-
-					local B
-					local S
-
-					for (( B=0, S=18; B<M; ++B, S-=6 ))
-					do
-						local C=$(( V >> S & 63 ))
-
-						echo -n ${SET:$C:1}
-					done
-
-					for (( B=0, M=4-M; B<M; ++B ))
-					do
-						echo -n "="
-					done
-				done
-
-				echo
-			}
-
 		smtpRequest "EHLO $SMTP_HOST" &&
 			smtpRequest "AUTH LOGIN" &&
 			smtpRequest "`echo -n "$SMTP_ACCOUNT" | base64`" &&
@@ -689,6 +639,138 @@ decodeQuotedPrintable()
 	done
 
 	echo $T
+}
+
+##
+# Base64 encoder, this is a fallback for systems that lack base64
+#
+# @param ... - flags
+#
+which base64 &>/dev/null ||	base64()
+{
+	local SET="ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+
+	local DECODE
+	local F
+
+	for F in $@
+	do
+		case "$F" in
+			-d)
+				DECODE=1
+				;;
+		esac
+	done
+
+	(( DECODE )) && {
+		local N=0
+		local V=0
+		local C
+
+		IFS=
+		while read -d '' -r -n1 C
+		do
+			[ $C == $'\n' ] && continue
+
+			if [ $C == '=' ]
+			then
+				V=$(( V << 6 ))
+			else
+				local P
+
+				if [ $C == '+' ]
+				then
+					P=`expr index "$SET" "\+"`
+				else
+					P=`expr index "$SET" $C`
+				fi
+
+				V=$(( V << 6 | --P ))
+			fi
+
+			(( ++N == 4 )) && {
+				local S
+
+				for (( B=3, S=16; B--; S-=8 ))
+				do
+					printf \\$( printf '%03o' $(( V >> S & 255 )))
+				done
+
+				V=0
+				N=0
+			}
+		done
+
+		return
+	}
+
+	local V=0
+	local W=0
+	local SH=16
+	local X
+	local EOF=0
+	local M=4
+
+	IFS=
+	while true
+	do
+		(( EOF )) ||
+			read -d '' -r -n1 X || {
+			EOF=1
+
+			if (( SH == 8 ))
+			then
+				M=2
+			elif (( SH == 0 ))
+			then
+				M=3
+			else
+				break
+			fi
+		}
+
+		local C=0
+
+		(( EOF )) ||
+			case "$X" in
+				'')
+					C=0
+					;;
+				*)
+					C=`printf '%d' "'$X"`
+					;;
+			esac
+
+		V=$(( C << SH | V ))
+		(( SH -= 8 ))
+
+		(( SH < 0 )) && {
+			local B
+			local S
+
+			for (( B=0, S=18; B<M; ++B, S-=6 ))
+			do
+				local C=$(( V >> S & 63 ))
+
+				echo -n ${SET:$C:1}
+
+				(( ++W > 75 )) && {
+					echo
+					W=0
+				}
+			done
+
+			for (( B=0, MM=4-M; B<MM; ++B ))
+			do
+				echo -n "="
+			done
+
+			(( EOF )) && break
+
+			SH=16
+			V=0
+		}
+	done
 }
 
 ##
