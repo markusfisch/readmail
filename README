@@ -10,18 +10,18 @@ CONFIGURATION
 Create ".readmailrc" in your home directory and put the following lines
 into it (fill in the values in brackets):
 
-pop.host: (your POP3 server)
-pop.port: 110
-pop.account: (your POP3 account)
-pop.password: (your POP3 password)
+POP_HOST='(your POP3 server)'
+POP_PORT=110
+POP_ACCOUNT='(your POP3 account)'
+POP_PASSWORD='(your POP3 password)'
 
 Append this block to configure your SMTP settings:
 
-smtp.host: (your SMTP server)
-smtp.port: 25
-smtp.account: (your SMTP account)
-smtp.password: (your SMTP password, this is optional)
+SMTP_HOST='(your SMTP server)'
+SMTP_PORT=25
+SMTP_ACCOUNT='(your SMTP account)'
+SMTP_PASSWORD='(your SMTP password, this is optional)'
 
 You may also add a optional notification command:
 
-notification: xmessage "You've got mail" &
+NOTIFICATION='xmessage "You got mail!" &'
