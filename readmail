@@ -719,6 +719,7 @@ config_prompt()
 	eval "DEFAULT=\$$1"
 	
 	[ "$DEFAULT" ] && PRESET=" [$DEFAULT]"
+	[ "$OPTIONAL" ] && PRESET="$PRESET (optional)"
 
 	while [ -z "$ANSWER" ]
 	do
@@ -726,11 +727,14 @@ config_prompt()
 		read -e ANSWER
 
 		[ "$ANSWER" ] || {
+			[ "$OPTIONAL" ] && return
 			[ "$DEFAULT" ] && ANSWER="$DEFAULT"
 		}
 	done
 
-	echo "$1='$ANSWER'" >> "$CONFIG"
+	[ "$VOLATILE" ] ||
+		echo "$1='$ANSWER'" >> "$CONFIG"
+
 	eval "$1=\$ANSWER"
 }
 
@@ -739,10 +743,20 @@ config_check()
 {
 	[ "$POP_HOST" ] &&
 		[ "$POP_ACCOUNT" ] &&
-		[ "$POP_PASSWORD" ] &&
 		[ "$SMTP_HOST" ] &&
-		[ "$SMTP_ACCOUNT" ] &&
+		[ "$SMTP_ACCOUNT" ] && {
+		# ask for passwords and don't save them
+		[ -z "$POP_PASSWORD" ] &&
+			VOLATILE=true config_prompt POP_PASSWORD 'POP3 password'
+
+		[ -z "$SMTP_PASSWORD" ] &&
+			VOLATILE=true OPTIONAL=true config_prompt \
+				SMTP_PASSWORD 'SMTP password'
+
+		# clear screen to remove visible password(s)
+		clear
 		return 0
+	}
 
 	if [ -f "$CONFIG" ]; then
 		cat << EOF
@@ -775,7 +789,7 @@ EOF
 	config_prompt SMTP_HOST 'SMTP host'
 	config_prompt SMTP_PORT 'SMTP port'
 	config_prompt SMTP_ACCOUNT 'SMTP account'
-	config_prompt SMTP_PASSWORD 'SMTP password'
+	OPTIONAL=true config_prompt SMTP_PASSWORD 'SMTP password'
 
 	echo 'setup complete.'
 
