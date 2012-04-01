@@ -12,7 +12,7 @@
 # Licensed under the MIT license:
 # http://www.opensource.org/licenses/mit-license.php
 #
-# @version 1.2.1
+# @version 1.3.0
 #
 
 # Send request and read succeeding response
@@ -179,8 +179,9 @@ list_messages()
 		# skip message if it is in the cache already and ONLYNEW is set
 		[ "$ONLYNEW" ] && [ "$RECORD" ] && continue
 
-		printf "%3d: ${FROM:0:74}\n" "$N"
-		printf "     ${SUBJECT:0:74}\n"
+		printf "%4d: " $N
+		echo "${FROM:0:72}\n"
+		echo "      ${SUBJECT:0:72}\n"
 	done
 
 	pop_close
@@ -746,15 +747,16 @@ config_check()
 		[ "$SMTP_HOST" ] &&
 		[ "$SMTP_ACCOUNT" ] && {
 		# ask for passwords and don't save them
-		[ -z "$POP_PASSWORD" ] &&
+		[ -z "$POP_PASSWORD" ] && {
 			VOLATILE=true config_prompt POP_PASSWORD 'POP3 password'
 
-		[ -z "$SMTP_PASSWORD" ] &&
-			VOLATILE=true OPTIONAL=true config_prompt \
-				SMTP_PASSWORD 'SMTP password'
+			[ -z "$SMTP_PASSWORD" ] &&
+				VOLATILE=true OPTIONAL=true config_prompt \
+					SMTP_PASSWORD 'SMTP password'
 
-		# clear screen to remove visible password(s)
-		clear
+			# clear screen to remove visible password(s)
+			clear
+		}
 		return 0
 	}
 
