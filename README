@@ -3,7 +3,7 @@ eMail client in BASH
 REQUIREMENTS
 
 A working GNU environment having bash, cat, clear, date, echo, grep,
-kill, less, mv, printf, rm and sort.
+kill, less, mkdir, mv, printf, rm, sort and touch.
 
 CONFIGURATION
 
@@ -11,14 +11,12 @@ Create ".readmailrc" in your home directory and put the following lines
 into it (fill in the values in brackets):
 
 POP_HOST='(your POP3 server)'
-POP_PORT=110
 POP_ACCOUNT='(your POP3 account)'
 POP_PASSWORD='(your POP3 password, this is optional)'
 
 Append this block to configure your SMTP settings:
 
 SMTP_HOST='(your SMTP server)'
-SMTP_PORT=25
 SMTP_ACCOUNT='(your SMTP account)'
 SMTP_PASSWORD='(your SMTP password, this is optional)'
 
