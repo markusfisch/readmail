@@ -44,7 +44,7 @@ pop_open()
 
 	pop_close
 
-	echo 'authentification failed!'
+	echo 'error: authentification failed!'
 	return 1
 }
 
@@ -60,9 +60,7 @@ pop_close()
 # Decode quoted-printable-encoded stream
 decode_quoted_printable()
 {
-	local IFS=
-	local T=
-	local ENCODED=0
+	local IFS= T= CODE= ENCODED=0
 
 	while read -r -n 1 -d $'\r' C
 	do
@@ -72,25 +70,30 @@ decode_quoted_printable()
 			continue
 
 		(( ! $ENCODED )) &&
-			T="$T""$C" &&
+			T=$T$C &&
 			continue
 
 		CODE=$CODE$C
-		(( ENCODED-- ))
+		(( --ENCODED ))
 
 		(( ! $ENCODED )) &&
 			eval "C=\$'\\x$CODE'" &&
-			T="$T""$C"
+			T=$T$C
 	done
 
 	echo $T
 }
 
-# Return current mailbox status
+# Return current mailbox status in STATUS, MAILS and SIZE
 status()
 {
+	local RESPONSE=
+
 	pop_open || return 1
-	pop_request 'STAT' || (pop_close; return 1)
+	pop_request 'STAT' || {
+		pop_close
+		return 1
+	}
 
 	read -d $CR STATUS MAILS SIZE <<EOF
 $RESPONSE
@@ -104,8 +107,7 @@ EOF
 # @param 1 - list of index numbers or "NEW" to list only new messages
 list_messages()
 {
-	local ONLYNEW=
-	local MESSAGES=
+	local RESPONSE= ONLYNEW= MESSAGES=
 
 	if [ "$1" == 'NEW' ]; then
 		ONLYNEW=1
@@ -114,10 +116,13 @@ list_messages()
 	fi
 
 	pop_open || return
-	pop_request 'UIDL' || (pop_close; return)
+	pop_request 'UIDL' || {
+		pop_close
+		return
+	}
 
-	local IDS=[]
-	MAILS=
+	local IDS=[] MAILS=
+	local N ID
 
 	# download list of messages
 	while read -d $CR N ID <&6
@@ -136,17 +141,13 @@ list_messages()
 	[ "$MESSAGES" ] && MAILS="$MESSAGES"
 
 	# display list of messages
-	local N
-
 	for N in $MAILS
 	do
-		RECORD="`grep "^${IDS[$N]}" "$CACHE"`"
-
-		local FROM=
-		local SUBJECT=
+		local RECORD="`grep "^${IDS[$N]}" "$CACHE"`"
+		local FROM= SUBJECT=
 
 		if [ "$RECORD" ]; then
-			TMP=${RECORD#*|}
+			local TMP=${RECORD#*|}
 			TMP=${TMP#*|}
 			FROM=${TMP%%|*}
 			SUBJECT=${RECORD##*|}
@@ -180,8 +181,8 @@ list_messages()
 		[ "$ONLYNEW" ] && [ "$RECORD" ] && continue
 
 		printf "%4d: " $N
-		echo "${FROM:0:72}\n"
-		echo "      ${SUBJECT:0:72}\n"
+		echo "${FROM:0:72}"
+		echo "      ${SUBJECT:0:72}"
 	done
 
 	pop_close
@@ -208,40 +209,41 @@ list_messages()
 # @param 1 - message to list
 read_message()
 {
-	local MESSAGE="$1"
-	local N=0
-	local ID=
+	local RESPONSE MESSAGE="$1"
 
 	[ "$MESSAGE" ] || return
 
 	pop_open || return
 
 	# get message id and confirm existence
-	pop_request "UIDL $MESSAGE" || (pop_close; return)
+	pop_request "UIDL $MESSAGE" || {
+		pop_close
+		return
+	}
 
+	local OK N ID
 	read -d $CR OK N ID <<EOF
 $RESPONSE
 EOF
 
 	[ "$ID" ] || exit
 
-	pop_request "TOP $MESSAGE $LINES_VIEW" || (pop_close; return)
+	pop_request "TOP $MESSAGE $LINES_VIEW" || {
+		pop_close
+		return
+	}
 
-	local FROM=
-	local TO=
-	local SUBJECT=
-	local DATE=
-	local ENCODING=
-	local BODY=
-	local INHEADER=1
+	local FROM= TO= SUBJECT= DATE= ENCODING= BODY=
+	local INHEADER=true IFS=$LF
 
 	while read -d $CR RESPONSE <&6
 	do
 		[[ $RESPONSE == . ]] && break
 
-		[ "$RESPONSE" ] || INHEADER=0
+		[ "$RESPONSE" ] || INHEADER=
 
-		if (( $INHEADER )); then
+		if [ "$INHEADER" ]
+		then
 			case "$RESPONSE" in
 				From:*|from:*|FROM:*)
 					FROM=`echo ${RESPONSE#*:}`
@@ -262,7 +264,7 @@ EOF
 					;;
 			esac
 		else
-			BODY="$BODY""$RESPONSE"$'\n'
+			BODY=$BODY$RESPONSE$LF
 		fi
 	done
 
@@ -271,9 +273,11 @@ EOF
 		! grep "^$ID|" "$CACHE" &> /dev/null; then
 		echo "$ID|1|$FROM|$SUBJECT" >> "$CACHE"
 	else
+	# use sub shell to have IFS reset only in this context
 	(
 		local CACHECONTENT=`< $CACHE`
 		local IFS='|'
+		local MID READ
 
 		rm "$CACHE"
 
@@ -307,6 +311,8 @@ EOF
 # Read next new message
 read_next_message()
 {
+	local RESPONSE
+
 	# if no cache file exists try to display first message
 	[ -f "$CACHE" ] || {
 		status || return
@@ -316,9 +322,12 @@ read_next_message()
 	}
 
 	pop_open || return
-	pop_request 'UIDL' || (pop_close; return)
+	pop_request 'UIDL' || {
+		pop_close
+		return
+	}
 
-	local NEXT=0
+	local NEXT=0 N ID
 
 	# find first unread
 	while read -d $CR N ID <&6
@@ -338,14 +347,20 @@ read_next_message()
 		read_message $NEXT
 }
 
-# Check for new messages
+# Check for new messages and set NEW_MAILS accordingly
 new_messages()
 {
+	local RESPONSE
+
 	pop_open || return 1
-	pop_request 'UIDL' || (pop_close; return 1)
+	pop_request 'UIDL' || {
+		pop_close
+		return 1
+	}
 
 	NEW_MAILS=0
 
+	local N ID
 	while read -d $CR N ID <&6
 	do
 		[[ $N == . ]] && break
@@ -363,28 +378,37 @@ new_messages()
 
 # Download message to disk
 #
-# @param 1 - message to file
+# @param 1 - index of message to file
 file_message()
 {
-	MESSAGE="$1"
+	local RESPONSE
 
-	[ "$MESSAGE" ] || return
+	[ "$1" ] || return
 
 	pop_open || return
-	pop_request "RETR $MESSAGE" || (pop_close; return)
+	pop_request "RETR $1" || {
+		pop_close
+		return
+	}
 
 	local DATE=`date +%Y%m%d%H%M%S`
 	local FILE="unknown-$DATE"
+	local FROM=
+	local INHEADER=true
+	local IFS=$LF
 
 	while read -d $CR RESPONSE <&6
 	do
 		[[ $RESPONSE == . ]] && break
 
-		case "$RESPONSE" in
-			From:*|from:*|FROM:*)
-				FROM="${RESPONSE#*:}"
-				;;
-		esac
+		[ "$RESPONSE" ] || INHEADER=
+
+		[ "$INHEADER" ] &&
+			case "$RESPONSE" in
+				From:*|from:*|FROM:*)
+					FROM="${RESPONSE#*:}"
+					;;
+			esac
 
 		echo "$RESPONSE" >> "$FILE"
 	done
@@ -400,10 +424,10 @@ file_message()
 
 # Delete messages from server
 #
-# @param 1 - list of indexes of messages to delete (optional)
+# @param 1 - list of indices of messages to delete (optional)
 delete_messages()
 {
-	local MESSAGES="$1" N
+	local MESSAGES="$1"
 
 	[ "$MESSAGES" ] || {
 		status || return
@@ -416,6 +440,7 @@ delete_messages()
 
 	pop_open || return
 
+	local RESPONSE N
 	for N in $MESSAGES
 	do
 		pop_request "DELE $N" || break
@@ -430,9 +455,7 @@ delete_messages()
 which base64 &>/dev/null ||	base64()
 {
 	local SET='ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'
-
-	local DECODE
-	local F
+	local DECODE F
 
 	for F in $@
 	do
@@ -444,9 +467,7 @@ which base64 &>/dev/null ||	base64()
 	done
 
 	(( DECODE )) && {
-		local N=0
-		local V=0
-		local C
+		local N=0 V=0 C
 
 		IFS=
 		while read -d '' -r -n1 C
@@ -559,6 +580,8 @@ which base64 &>/dev/null ||	base64()
 # @param 1 - some command
 smtp_request()
 {
+	local RESPONSE
+
 	echo "$1" >&7
 
 	for (( ;; ))
@@ -668,7 +691,7 @@ Content-Transfer-Encoding: 8bit;
 		smtp_close &&
 		return
 
-	echo 'error: message could NOT be sent!'
+	echo 'error: message NOT sent!'
 	smtp_close
 }
 
@@ -677,26 +700,34 @@ Content-Transfer-Encoding: 8bit;
 # @param 1 - index of message
 answer_message()
 {
-	local N="$1"
+	local RESPONSE N="$1"
 
 	pop_open || return
-	pop_request "TOP $N 0" || (pop_close; return)
+	pop_request "TOP $N 0" || {
+		pop_close
+		return
+	}
 
 	local FROM=
 	local SUBJECT=
+	local INHEADER=true
+	local IFS=$LF
 
 	while read -d $CR RESPONSE <&6
 	do
 		[[ $RESPONSE == . ]] && break
 
-		case "$RESPONSE" in
-			From:*|from:*|FROM:*)
-				FROM=`echo ${RESPONSE#*:}`
-				;;
-			Subject:*|subject:*|SUBJECT:*)
-				SUBJECT=`echo ${RESPONSE#*:}`
-				;;
-		esac
+		[ "$RESPONSE" ] || INHEADER=
+
+		[ "$INHEADER" ] &&
+			case "$RESPONSE" in
+				From:*|from:*|FROM:*)
+					FROM=`echo ${RESPONSE#*:}`
+					;;
+				Subject:*|subject:*|SUBJECT:*)
+					SUBJECT=`echo ${RESPONSE#*:}`
+					;;
+			esac
 	done
 
 	pop_close
@@ -771,7 +802,8 @@ Missing configuration file! This seems to be the first time you are running
 this script. Do you like to set up a configuration now? ([yes]/no)
 EOF
 	fi
-
+	
+	local ANSWER
 	read -e ANSWER
 
 	case "$ANSWER" in
@@ -798,10 +830,9 @@ EOF
 	return 0
 }
 
-# Parse blank-separated index numbers and validate them
+# Validate indices and set INDICES accordingly
 #
-# @param 1 - blank-separated index numbers
-# @param 2 - sort numbers reversely if set (optional)
+# @param ... - index numbers
 validate_indices()
 {
 	INDICES=
@@ -811,7 +842,7 @@ validate_indices()
 
 	local N
 
-	for N in $1
+	for N in $@
 	do
 		[[ $N == [0-9-]* ]] || continue
 
@@ -836,25 +867,23 @@ validate_indices()
 			continue
 		}
 
-		for (( C=$START; $C <= $STOP; C++ ))
+		for (( C=$START; $C <= $STOP; ++C ))
 		do
 			INDICES=$INDICES$C$LF
 		done
 	done
 
-	# reverse order
-	[ $2 ] &&
+	[ $REVERSE ] &&
 		INDICES="`echo "$INDICES" | sort -nr`"
 }
 
 # Run given command
 #
 # @param 1 - some command
+# @param ... - command arguments
 run()
 {
-	local CMD="$1"
-
-	case "$CMD" in
+	case "$1" in
 		h*|\?*)
 			cat << EOF
   p(eek)                 peek for new messages
@@ -886,7 +915,7 @@ EOF
 		P*)
 			if [ -z "$NOTIFICATION" ] || [ -z "$INTERVAL" ]
 			then
-				echo 'error missing notification command!'
+				echo 'error: missing notification command!'
 				return
 			fi
 
@@ -920,29 +949,33 @@ EOF
 			echo "$MAILS mails ($SIZE bytes)"
 			;;
 		n*)
-			list_messages 'NEW'
+			list_messages NEW
 			;;
 		l*)
-			[[ $CMD == l*' '* ]] || {
+			(( $# < 2 )) && {
 				list_messages
 				return
 			}
 
-			validate_indices "$CMD"
+			shift
+			validate_indices $@
 
 			[ "$INDICES" ] &&
 				list_messages "$INDICES"
 			;;
 		d*)
-			case $CMD in
-				*' all')
+			(( $# < 2 )) && return
+
+			shift
+			case $1 in
+				all)
 					delete_messages
 					;;
 				*)
-					# because the following indexes will change after
+					# because the following indices will change after
 					# a message is deleted it is very important to
 					# sort list reverse
-					validate_indices "$CMD" 1
+					REVERSE=true validate_indices $@
 
 					[ "$INDICES" ] &&
 						delete_messages "$INDICES"
@@ -950,12 +983,13 @@ EOF
 			esac
 			;;
 		r*)
-			[[ $CMD == r*' '* ]] || {
+			(( $# < 2 )) && {
 				read_next_message
 				return
 			}
 
-			validate_indices "$CMD"
+			shift
+			validate_indices $@
 
 			[ "$INDICES" ] && {
 				local N
@@ -968,7 +1002,8 @@ EOF
 			}
 			;;
 		f*)
-			validate_indices "$CMD"
+			shift
+			validate_indices $@
 
 			[ "$INDICES" ] && {
 				local N
@@ -980,25 +1015,18 @@ EOF
 			}
 			;;
 		a*)
-			[[ $CMD == a*' '* ]] ||
-				return
+			(( $# < 2 )) && return
 
-			local N=${CMD#* }
-
-			answer_message $N
+			answer_message $1
 			;;
 		w*)
-			local TO=
-
-			[[ $CMD == w*' '* ]] &&
-				TO=${CMD#* }
-
-			write_message $TO
+			shift
+			write_message $@
 			;;
 		c*)
 			clear
 			;;
-		q*|x*|exit)
+		q*|exit)
 			exit
 			;;
 		Q*)
@@ -1010,8 +1038,8 @@ EOF
 			exit
 			;;
 		*)
-			[ "$CMD" ] && {
-				echo "error: unknown command '$CMD'"
+			[ "$1" ] && {
+				echo "error: unknown command '$1'"
 				return
 			}
 
@@ -1038,16 +1066,16 @@ LINES_VIEW=${LINES_VIEW:-256}
 config_check || exit 1
 
 # process command line arguments
-for CMD in $@
+for CMD in "$@"
 do
-	run "$CMD"
+	run $CMD
 done
 
 # interactive operation
-for (( ;; ))
+while true
 do
 	printf "$POP_ACCOUNT> "
 	read -e CMD
 
-	run "$CMD"
+	run $CMD
 done
