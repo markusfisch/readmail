@@ -1,0 +1,18 @@
+1.2.1
+	switched from camelCase to underscore naming convention
+
+1.2.0
+	load configuration by simply read and execute configuration file
+
+1.1.1
+	base64 fallback implementation
+	replaced date -R with +"%a, %d %b %Y %H:%M:%S %z" to support OS X
+
+1.1.0
+	support for SMTP EHLO command with AUTH LOGIN
+
+1.0.5
+	removed the need for sed
+
+1.0.0
+	first release
