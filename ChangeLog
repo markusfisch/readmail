@@ -1,3 +1,7 @@
+1.4.0
+	show date in message listing
+	use readline for interactive operation
+
 1.3.0
 	optionally ask for passwords on every start and don't store them
 	process quoted commands with arguments from the command line
