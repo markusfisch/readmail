@@ -12,7 +12,7 @@
 # Licensed under the MIT license:
 # http://www.opensource.org/licenses/mit-license.php
 #
-# @version 1.4.0
+# @version 1.5.0
 #
 
 # Send request and read succeeding response
@@ -156,18 +156,40 @@ parse_header_field()
 	esac
 }
 
+# Echo address only
+#
+# @param 1 - eMail address in long format
+address()
+{
+	local A=$1
+
+	[[ $A == *\<* ]] && {
+		A=${A#*<}
+		A=`echo ${A%>*}`
+	}
+
+	echo $A
+}
+
 # List message(s)
 #
-# @param 1 - list of index numbers or "NEW" to list only new messages
+# @param 1 - list of index numbers or "NEW" to list only new messages or
+#            "TAIL" to list only the last 3 messages
 list_messages()
 {
-	local RESPONSE= NEW= MESSAGES=
+	local RESPONSE= NEW= TAIL= MESSAGES=
+	local LIST_FORMAT=${LIST_FORMAT:-"%4d: %s\n      %s\n      %s\n\n"}
 
-	if [ "$1" == 'NEW' ]; then
-		NEW=1
-	else
-		MESSAGES="$1"
-	fi
+	case "$1" in
+		NEW)
+			NEW=1
+			;;
+		TAIL)
+			TAIL=${2:-3}
+			;;
+		*)
+			MESSAGES="$1"
+	esac
 
 	pop_open || return
 	pop_request 'UIDL' || {
@@ -195,6 +217,7 @@ list_messages()
 	local MAILBOX=[]
 	touch "$CACHE"
 
+	[ "$TAIL" ] && MESSAGES=`for N in $MAILS; do echo $N; done | tail -n $TAIL`
 	[ "$MESSAGES" ] && MAILS="$MESSAGES"
 
 	# display list of messages
@@ -227,7 +250,7 @@ EOF
 		# skip message if it is in the cache already and NEW is set
 		[ "$NEW" ] && [ "$RECORD" ] && continue
 
-		printf "%4d: %s\n      %s\n      %s\n\n" \
+		printf "$LIST_FORMAT" \
 			$N \
 			"${FROM:0:72}" \
 			"$DATE" \
@@ -451,11 +474,8 @@ file_message()
 	[ "$DATE" ] ||
 		DATE=`date +%Y%m%d%H%M%S`
 
-	FROM=${FROM#*<}
-	FROM=`echo ${FROM%>*}`
-
 	[ "$FROM" ] && [ -f "$FILE" ] &&
-		mv "$FILE" "$FROM-$DATE"
+		mv "$FILE" "`address $FROM`-$DATE"
 }
 
 # Delete messages from server
@@ -668,57 +688,68 @@ smtp_open()
 	return 1
 }
 
-# Write and send a message
+# Write a message
 #
-# @param 1 - recipient of the message
-# @param 2 - subject of the mail (optional)
+# @param ... - recipients (optional)
 write_message()
 {
-	local TO="$1"
-	local SUBJECT="$2"
-	local BODY=
+	local SUBJECT=${SUBJECT:-}
+	local BODY=${BODY:-}
 
-	[ "$TO" ] && echo "To     : $TO"
+	if (( $# > 0 )) 
+	then
+		local TO
 
-	while [ -z "$TO" ]
-	do
-		printf 'To     : '
-		read TO
-	done
-
-	local RCPT="$TO"
-	local FROM="$SMTP_ACCOUNT"
-
-	if [[ $RCPT == *\<* ]] ; then
-		RCPT=${RCPT#*<}
-		RCPT=`echo ${RCPT%>*}`
-	fi
-
-	if [[ $FROM == *\<* ]] ; then
-		FROM=${FROM#*<}
-		FROM=`echo ${FROM%>*}`
-	fi
-
-	if [ -z "$SUBJECT" ]; then
-		printf 'Subject: '
-		read SUBJECT
+		for TO in "$@"
+		do
+			echo "To     : $TO"
+		done
 	else
-		echo "Subject: $SUBJECT"
+		local TO=
+
+		while [ -z "$TO" ]
+		do
+			read -p 'To     : ' -e TO || return
+		done
+
+		set ${TO//,/}
 	fi
 
-	while [ -z "$BODY" ]
-	do
-		echo 'Message: (hit CTRL-D when finished)'
-		BODY="`cat`"
-	done
+	if [ "$SUBJECT" ]
+	then
+		echo "Subject: $SUBJECT"
+	else
+		read -p 'Subject: ' -e SUBJECT || return
+	fi
 
-	smtp_open || return
+	if [ "$BODY" ]
+	then
+		echo "$BODY"
+	else
+		echo 'Message: (hit CTRL-D to send, CTRL-C to abort)'
+		BODY=`cat`
+	fi
 
-	smtp_request "MAIL FROM: <$FROM>" &&
-		smtp_request "RCPT TO: <$RCPT>" &&
-		smtp_request "DATA" &&
-		smtp_request "From: $SMTP_ACCOUNT
-To: $TO
+	smtp_open &&
+		for ((;;))
+		do
+			smtp_request "MAIL FROM: <`address $SMTP_ACCOUNT`>" || break
+
+			local R RECIPIENTS=
+			for R in "$@"
+			do
+				smtp_request "RCPT TO: <`address $R`>" || {
+					RECIPIENTS=
+					break
+				}
+				RECIPIENTS=$RECIPIENTS${RECIPIENTS:+, }$R
+			done
+
+			[ "$RECIPIENTS" ] || break
+
+			smtp_request "DATA" || break
+			smtp_request "From: $SMTP_ACCOUNT
+To: $RECIPIENTS
 Subject: $SUBJECT
 Date: `export LANG=; date +"%a, %d %b %Y %H:%M:%S %z"`
 MIME-Version: 1.0
@@ -726,45 +757,48 @@ Content-Type: text/plain;
 Content-Transfer-Encoding: 8bit;
 
 `echo "$BODY" | while read -n 76 LINE; do echo "$LINE"; done`
-." &&
-		smtp_close &&
-		return
+." || break
 
-	echo 'error: message NOT sent!'
-	smtp_close
+			smtp_close && return
+
+			break
+		done
+
+	echo 'error: message REJECTED!'
 }
 
 # Answer a message
 #
-# @param 1 - index of message
+# @param ... - index of message
 answer_message()
 {
-	local RESPONSE N="$1"
-
-	pop_open || return
-	pop_request "TOP $N 0" || {
-		pop_close
-		return
-	}
-
-	local FROM= TO= SUBJECT= DATE= ENCODING=
-
-	while read -d $CR RESPONSE <&6
+	for N in $@
 	do
-		parse_header_field || break
+		pop_open || return 1
+
+		local RESPONSE FROM= TO= SUBJECT= DATE= ENCODING=
+
+		for ((;;))
+		do
+			pop_request "TOP $N 0" || break
+
+			while read -d $CR RESPONSE <&6
+			do
+				parse_header_field || break
+			done
+		
+			# remove last LF
+			read <&6
+
+			break
+		done
+
+		pop_close
+
+		[ "$FROM" ] || return 1
+	
+		SUBJECT="Re: $SUBJECT" write_message "`address $FROM`"
 	done
-
-	# remove last LF
-	read <&6
-
-	pop_close
-
-	FROM=${FROM#*<}
-	FROM=`echo ${FROM%>*}`
-
-	[ "$FROM" ] || return
-
-	write_message "$FROM" "Re: $SUBJECT"
 }
 
 # Ask for a setting and put it into $CONFIG
@@ -782,8 +816,7 @@ config_prompt()
 
 	while [ -z "$ANSWER" ]
 	do
-		printf "$2$PRESET: "
-		read -e ANSWER
+		read -p "$2$PRESET: " -e ANSWER || break
 
 		[ "$ANSWER" ] || {
 			[ "$OPTIONAL" ] && return
@@ -808,9 +841,14 @@ config_check()
 		[ -z "$POP_PASSWORD" ] && {
 			VOLATILE=true config_prompt POP_PASSWORD 'POP3 password'
 
-			[ -z "$SMTP_PASSWORD" ] &&
+			[ -z "$SMTP_PASSWORD" ] && {
 				VOLATILE=true OPTIONAL=true config_prompt \
 					SMTP_PASSWORD 'SMTP password'
+
+				# if nothing was given assume POP password
+				[ -z "$SMTP_PASSWORD" ] &&
+					SMTP_PASSWORD=$POP_PASSWORD
+			}
 
 			# clear screen to remove visible password(s)
 			clear
@@ -923,9 +961,10 @@ run()
 		h*|\?*)
 			cat <<EOF
   p(eek)                 peek for new messages
-  P(eek)                 peek continuously & notify on mail
+  P(eek)                 peek in background and notify on mail
   s(tatus)               request mailbox status
-  n(ew)                  list (only) new messages
+  n(ew)                  list new messages only
+  t(ail) [N]             list the latest N messages
   l(ist) [N[-N]]...      list messages
   r(ead) [N[-N]]...      read message
   f(ile) N[-N]...        file message to current directory
@@ -985,6 +1024,9 @@ EOF
 			;;
 		n*)
 			list_messages NEW
+			;;
+		t*)
+			list_messages TAIL $2
 			;;
 		l*)
 			(( $# < 2 )) && {
@@ -1053,7 +1095,7 @@ EOF
 			(( $# < 2 )) && return
 
 			shift
-			answer_message $1
+			answer_message $@
 			;;
 		w*)
 			shift
