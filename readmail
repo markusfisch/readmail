@@ -12,7 +12,7 @@
 # Licensed under the MIT license:
 # http://www.opensource.org/licenses/mit-license.php
 #
-# @version 1.5.0
+# @version 1.5.1
 #
 
 # Send request and read succeeding response
@@ -453,7 +453,7 @@ file_message()
 		return
 	}
 
-	local FILE="${BIN}-message"
+	local FILE="${BIN}-message-$1"
 	local FROM= TO= SUBJECT= DATE= ENCODING=
 	local HEADER=true
 
@@ -813,16 +813,26 @@ config_prompt()
 
 	[ "$DEFAULT" ] && PRESET=" [$DEFAULT]"
 	[ "$OPTIONAL" ] && PRESET="$PRESET (optional)"
+	[ "$PASSWORD" ] && stty -echo
 
 	while [ -z "$ANSWER" ]
 	do
 		read -p "$2$PRESET: " -e ANSWER || break
 
 		[ "$ANSWER" ] || {
-			[ "$OPTIONAL" ] && return
+			[ "$OPTIONAL" ] && break
 			[ "$DEFAULT" ] && ANSWER="$DEFAULT"
 		}
 	done
+
+	[ "$PASSWORD" ] && {
+		echo
+		stty echo
+	}
+
+	[ "$ANSWER" ] || {
+		[ "$OPTIONAL" ] && return
+	}
 
 	[ "$VOLATILE" ] ||
 		echo "$1='$ANSWER'" >> "$CONFIG"
@@ -839,19 +849,20 @@ config_check()
 		[ "$SMTP_ACCOUNT" ] && {
 		# ask for passwords and don't save them
 		[ -z "$POP_PASSWORD" ] && {
-			VOLATILE=true config_prompt POP_PASSWORD 'POP3 password'
+			PASSWORD=true \
+				VOLATILE=true \
+				config_prompt POP_PASSWORD 'POP3 password'
 
 			[ -z "$SMTP_PASSWORD" ] && {
-				VOLATILE=true OPTIONAL=true config_prompt \
-					SMTP_PASSWORD 'SMTP password'
+				PASSWORD=true \
+					VOLATILE=true \
+					OPTIONAL=true \
+					config_prompt SMTP_PASSWORD 'SMTP password'
 
 				# if nothing was given assume POP password
 				[ -z "$SMTP_PASSWORD" ] &&
 					SMTP_PASSWORD=$POP_PASSWORD
 			}
-
-			# clear screen to remove visible password(s)
-			clear
 		}
 		return 0
 	}
@@ -1018,9 +1029,9 @@ EOF
 			exit
 			;;
 		s*)
-			status
-
-			echo "$MAILS mails ($SIZE bytes)"
+			local STATUS_FORMAT=${STATUS_FORMAT:-"%d mails (%d bytes)\n"}
+			status &&
+				printf "$STATUS_FORMAT" $MAILS $SIZE
 			;;
 		n*)
 			list_messages NEW
