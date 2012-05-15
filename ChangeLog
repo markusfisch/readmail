@@ -1,3 +1,9 @@
+2.0.0
+	MIME support
+	add/extract attachments
+	externalized base64 fallback
+	convert codeset if iconv is available
+
 1.5.1
 	protected password input
 
@@ -18,7 +24,7 @@
 	switched from camelCase to underscore naming convention
 
 1.2.0
-	load configuration by simply read and execute configuration file
+	load configuration by simply read and execute a configuration file
 
 1.1.1
 	base64 fallback implementation
