@@ -1,3 +1,7 @@
+2.1.0
+	changed parameterless reading of messages from latest to newest
+	support a signature
+
 2.0.0
 	MIME support
 	add/extract attachments

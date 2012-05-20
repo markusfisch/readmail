@@ -741,17 +741,24 @@ read_next_message()
 		return
 	}
 
-	local NEXT=0 N ID
+	local NEXT=0 N ID IDS
 	while read N ID <&6
 	do
 		[ "$N" == '.'$CR ] && break
-		[ -r "$CACHE/${ID%$CR}/read" ] || {
+		IDS[$N]=${ID%$CR}
+	done
+
+	pop_close
+
+	# because UID listing starts with index 1, # is the last element
+	for (( N=${#IDS[@]}; N; --N ))
+	do
+		[ "${IDS[$N]}" ] || continue
+		[ -r "$CACHE/${IDS[$N]}/read" ] || {
 			NEXT=$N
 			break
 		}
 	done
-
-	pop_close
 
 	(( $NEXT )) && read_message $NEXT
 }
@@ -819,21 +826,21 @@ write_message()
 			read -p 'To         : ' -e TO || return
 		done
 
-		set ${TO//,/}
+		set ${TO//,/ }
 	fi
 
 	if [ "$SUBJECT" ]
 	then
 		echo "Subject    : $SUBJECT"
 	else
-		read -p 'Subject    : ' -e SUBJECT || return
+		read -p 'Subject    : ' -e SUBJECT
 	fi
 
 	if [ "$ATTACHMENTS" ]
 	then
 		echo "Attachments: $ATTACHMENTS"
 	else
-		read -p 'Attachments: ' -e ATTACHMENTS || return
+		read -p 'Attachments: ' -e ATTACHMENTS
 	fi
 
 	[ "$ATTACHMENTS" ] && {
@@ -886,6 +893,11 @@ Message-ID: <$MESSAGE_ID>
 MIME-Version: 1.0"
 
 			BODY=`echo "$BODY" | while read -n 76 LINE; do echo "$LINE"; done`
+
+			[ "$SIGNATURE" ] && BODY=$BODY"
+
+--
+$SIGNATURE"
 
 			if [ "$ATTACHMENTS" ]
 			then
