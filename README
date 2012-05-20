@@ -51,3 +51,28 @@ Append this block to configure your SMTP settings:
 	SMTP_PASSWORD='(your SMTP password, this is optional)'
 
 If you don't want to give passwords, readmail will ask you for it.
+
+Examples
+--------
+
+Quickly get the size of your mailbox:
+
+	$ readmail s q
+
+Show your latest message:
+
+	$ readmail r q
+
+Get the number of new messages since the last call:
+
+	$ FORMAT="%d\n" readmail p q
+
+Send a message in one line:
+
+	$ ATTACHMENTS=' ' SUBJECT='subject' BODY='body' \
+		readmail 'w john@example.com doe@example.com' q
+
+Send one or more files:
+
+	$ ATTACHMENTS='file1 file2' SUBJECT='subject' BODY='body' \
+		readmail 'w john@example.com' q
