@@ -355,10 +355,10 @@ mime_free()
 	MIME_CACHE=
 }
 
-# Echo content
+# Decode possibly encoded message text
 #
 # @param 1 - message directory
-mime_content()
+mime_decode_message()
 {
 	local F="$1/body"
 
@@ -440,15 +440,16 @@ mime_display_message()
 		[ "$H" ] && echo
 	}
 
-	mime_content "$1"
+	mime_decode_message "$1"
 }
 
 # Traverse message tree to find message text
 #
 # @param 1 - directory in MIME tree
+# @param 2 - callback function
 mime_find_message()
 {
-	[ "$1" ] || return 1
+	(( $# < 2 )) && return 1
 
 	local TYPE=0
 
@@ -478,7 +479,7 @@ mime_find_message()
 				case "$T" in
 					*[Tt][Ee][Xx][Tt]/[Pp][Ll][Aa][Ii][Nn]*|\
 					*[Tt][Ee][Xx][Tt]/[Hh][Tt][Mm][Ll]*)
-						mime_display_message "$P"
+						$2 "$P"
 						(( TYPE == 2 )) || return 0
 						;;
 				esac
@@ -487,20 +488,24 @@ mime_find_message()
 
 		(( TYPE == 2 )) && return 0
 
-		[ -r "$P/parts" ] && mime_find_message "$P" && return 0
+		[ -r "$P/parts" ] && mime_find_message "$P" "$2" && return 0
 	done
 
 	return 1
 }
 
 # Echo message from MIME data structure
+#
+# @param 1 - callback function (optional)
 mime_message()
 {
+	local C=${1:-mime_display_message}
+
 	[ -r "$MIME_CACHE/parts" ] &&
-		mime_find_message "$MIME_CACHE" &&
+		mime_find_message "$MIME_CACHE" $C &&
 		return
 
-	mime_display_message "$MIME_CACHE"
+	$C "$MIME_CACHE"
 }
 
 ##############################################################################
@@ -688,7 +693,7 @@ extract_attachments()
 					continue
 				}
 
-				mime_content "$D" > "$F"
+				mime_decode_message "$D" > "$F"
 			done < "$MIME_CACHE/attachments"
 		}
 	done
@@ -867,15 +872,17 @@ write_message()
 		BODY=`cat`
 	fi
 
+	BODY=$BODY$QUOTE
+
 	smtp_open && {
 		for ((;;))
 		do
-			smtp_request "MAIL FROM: <`address $SMTP_ACCOUNT`>" || break
+			smtp_request "MAIL FROM: <`address "$SMTP_ACCOUNT"`>" || break
 
 			local R RECIPIENTS=
 			for R in "$@"
 			do
-				smtp_request "RCPT TO: <`address $R`>" || {
+				smtp_request "RCPT TO: <`address "$R"`>" || {
 					RECIPIENTS=
 					break
 				}
@@ -892,7 +899,7 @@ Date: `LANG= date +"%a, %d %b %Y %H:%M:%S %z"`
 Message-ID: <$MESSAGE_ID>
 MIME-Version: 1.0"
 
-			BODY=`echo "$BODY" | while read -n 76 LINE; do echo "$LINE"; done`
+			BODY=`echo "$BODY" | while read -n 76; do echo "$REPLY"; done`
 
 			[ "$SIGNATURE" ] && BODY=$BODY"
 
@@ -951,28 +958,34 @@ $BODY
 	echo 'error: message REJECTED!'
 }
 
+# Quote message
+#
+# @param 1 - directory in MIME tree
+quote_message()
+{
+	mime_decode_message "$1" | while read -n 76
+	do
+		echo "> $REPLY"
+	done
+}
+
 # Answer a message
 #
-# @param ... - index of message
+# @param ... -  message indices
 answer_message()
 {
-	local N FROM
+	local N MIME_CACHE FROM SUBJECT QUOTE
 	for N in $@
 	do
-		pop_open || return 1
+		retrieve_message $N || return 1
 
-		for ((;;))
-		do
-			pop_request "TOP $N 0" || break
-			mime_parse <&6 && FROM=`decode_encoded_word < "$MIME_CACHE/from"`
-			mime_free
-			break
-		done
-
-		pop_close
+		FROM=`decode_encoded_word < "$MIME_CACHE/from"`
+		SUBJECT="Re: `decode_encoded_word < "$MIME_CACHE/subject"`"
+		QUOTE=`mime_message quote_message`
 
 		[ "$FROM" ] || return 1
-		SUBJECT="Re: $SUBJECT" write_message "`address $FROM`"
+
+		write_message "`address "$FROM"`"
 	done
 }
 
