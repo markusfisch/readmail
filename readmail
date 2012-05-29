@@ -986,7 +986,7 @@ answer_message()
 		[ "$FROM" ] || return 1
 		[ "$QUOTE" ] && QUOTE=$'\n'$'\n'$QUOTE
 
-		write_message "`address "$FROM"`"
+		write_message "$FROM"
 	done
 }
 
