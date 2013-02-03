@@ -12,21 +12,21 @@ Features
 
 Following commands are available:
 
-  p(eek)               peek for new messages
-  s(tatus)             request mailbox status
-  n(ew)                list new messages only
-  t(ail) [N]           list the latest N messages
-  l(ist) [N[-N]]...    list messages
-  r(ead) [N[-N]]...    read message
-  x(tract) N[-N]...    extract attachments of message N
-  f(ile) N[-N]...      file message
-  d(elete) N[-N]...    remove message
-  a(nswer) N           answer message
-  w(rite) ADDRESS      write a message to ADDRESS
-  m(ime) FILE          show a message file in MIME format (e.g. *.mbs)
-  c(lear)              clear screen (or CTRL+L)
-  h(elp)               show this info
-  q(uit)               quit (or CTRL+D)
+	p(eek)               peek for new messages
+	s(tatus)             request mailbox status
+	n(ew)                list new messages only
+	t(ail) [N]           list the latest N messages
+	l(ist) [N[-N]]...    list messages
+	r(ead) [N[-N]]...    read message
+	x(tract) N[-N]...    extract attachments of message N
+	f(ile) N[-N]...      file message
+	d(elete) N[-N]...    remove message
+	a(nswer) N           answer message
+	w(rite) ADDRESS      write a message to ADDRESS
+	m(ime) FILE          show a message file in MIME format (e.g. *.mbs)
+	c(lear)              clear screen (or CTRL+L)
+	h(elp)               show this info
+	q(uit)               quit (or CTRL+D)
 
 You may invoke the commands directly from the command line, e.g.:
 
