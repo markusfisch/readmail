@@ -161,7 +161,7 @@ decode_encoded_word()
 						echo -n "${P[2]}" | decode_quoted_printable
 						;;
 					[Bb])
-						echo -n "${P[2]}" | base64 -d -i
+						echo -n "${P[2]}" | $BASE64_DECODE
 						;;
 				esac | iconv -f "${P[0]}" -t utf-8
 			else
@@ -179,12 +179,23 @@ which iconv &>/dev/null || iconv() {
 	cat
 }
 
-which base64 &>/dev/null || {
+if which base64 &>/dev/null
+then
+	# GNU and BSD base64 command line flags are incompatible
+	if base64 --version | grep GNU &>/dev/null
+	then
+		# GNU coreutils' base64
+		BASE64_DECODE='base64 -d -i'
+	else
+		# BSD/OSX's base64
+		BASE64_DECODE='base64 -D'
+	fi
+else
 	echo 'error: base64 not found!' >&2
 	echo 'Either install it or get this fallback implementation:' >&2
 	echo 'https://gist.github.com/2648733' >&2
 	exit 1
-}
+fi
 
 ##############################################################################
 #### String auxiliaries
@@ -379,7 +390,7 @@ mime_decode_message()
 				decode_quoted_printable
 				;;
 			*[Bb][Aa][Ss][Ee]64*)
-				base64 -d -i
+				$BASE64_DECODE
 				;;
 			*)
 				cat
@@ -695,7 +706,7 @@ extract_attachments()
 			do
 				local D
 				read D < "$MIME_CACHE/attachments-paths"
-  				[ "$D" ] || continue
+				[ "$D" ] || continue
 				[ -r "$F" ] && {
 					echo "error: $F already exists" >&2
 					continue
