@@ -695,7 +695,7 @@ read_message()
 extract_attachments()
 {
 	local N
-	for N in $@
+	for N
 	do
 		local MIME_CACHE
 		retrieve_message $N || continue
@@ -727,7 +727,7 @@ file_message()
 	pop_open || return
 
 	local N
-	for N in $@
+	for N
 	do
 		local T=`mktemp ${BIN}.XXXXXXXXXX`
 		pop_request "RETR $N" || break
@@ -817,7 +817,7 @@ delete_messages()
 	pop_open || return
 
 	local N
-	for N in $@
+	for N
 	do
 		pop_request "DELE $N"
 	done
@@ -838,7 +838,7 @@ write_message()
 	then
 		local TO
 
-		for TO in "$@"
+		for TO
 		do
 			echo "To         : $TO"
 		done
@@ -899,7 +899,7 @@ write_message()
 			smtp_request "MAIL FROM: <`address "$SMTP_ACCOUNT"`>" || break
 
 			local R RECIPIENTS=
-			for R in "$@"
+			for R
 			do
 				smtp_request "RCPT TO: <`address "$R"`>" || {
 					RECIPIENTS=
@@ -994,7 +994,7 @@ quote_message()
 answer_message()
 {
 	local N MIME_CACHE FROM SUBJECT QUOTE
-	for N in $@
+	for N
 	do
 		retrieve_message $N || return 1
 
@@ -1126,7 +1126,7 @@ expand_range()
 	status || return
 
 	local N
-	for N in $@
+	for N
 	do
 		[[ $N == [0-9-]* ]] || continue
 
@@ -1253,7 +1253,7 @@ EOF
 			(( $# < 2 )) && return
 			shift
 			local N MIME_CACHE
-			for N in $@
+			for N
 			do
 				[ -r "$N" ] || {
 					echo "error: $N not found!" >&2
@@ -1296,7 +1296,7 @@ config_check || exit 1
 [ -d "$CACHE" ] || mkdir -p "$CACHE" || exit 1
 
 # process command line arguments
-for CMD in "$@"
+for CMD
 do
 	run $CMD
 done
