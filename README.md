@@ -1,8 +1,8 @@
-BASH eMail client
+Bash eMail client
 =================
 
 Probably the worlds smallest, simplest, yet full featured eMail client
-without any dependencies beyond a working GNU environment running BASH.
+without any dependencies beyond a working GNU environment running Bash.
 
 Use it as a fallback, as a quick & slim alternative or as a tool to
 read, send and manage messages.
