@@ -32,7 +32,7 @@ pop_close()
 # Open connection to pop box and login
 pop_open()
 {
-	exec 6<>/dev/tcp/$POP_HOST/$POP_PORT ||
+	exec 6<>/dev/tcp/"$POP_HOST"/"$POP_PORT" ||
 		return 1
 
 	read -r <&6
@@ -85,7 +85,7 @@ smtp_close()
 # Open connection to smtp server and log on
 smtp_open()
 {
-	exec 7<>/dev/tcp/$SMTP_HOST/$SMTP_PORT ||
+	exec 7<>/dev/tcp/"$SMTP_HOST"/"$SMTP_PORT" ||
 		return 1
 
 	read -r <&7
@@ -139,7 +139,7 @@ decode_encoded_word()
 	do
 		while [[ $REPLY == *'=?'* ]]
 		do
-			echo -n ${REPLY%%'=?'*}
+			echo -n "${REPLY%%'=?'*}"
 			local A=${REPLY#*'?='} V=${REPLY#*'=?'}
 			V=${V%%'?='*}
 			local P=( ${V//\?/ } )
@@ -160,7 +160,7 @@ decode_encoded_word()
 			REPLY=$A
 		done
 
-		echo -n $REPLY
+		echo -n "$REPLY"
 	done
 }
 
@@ -230,7 +230,7 @@ address()
 
 	[[ $A == *\<* ]] && {
 		A=${A#*<}
-		A=$(echo "${A%>*}")
+		A=${A%>*}
 	}
 
 	echo "$A"
@@ -275,7 +275,7 @@ mime_parse()
 
 				[ -r "$D/content-disposition" ] && {
 					local VALUE
-					value "$(< $D/content-disposition)" \
+					value "$(< "$D/content-disposition")" \
 						'[Ff][Ii][Ll][Ee][Nn][Aa][Mm][Ee]='
 					[ "$VALUE" ] && {
 						echo "$VALUE" >> "$MIME_CACHE/attachments"
@@ -307,7 +307,8 @@ mime_parse()
 				*) continue;;
 			esac
 
-			echo "${REPLY#*:}" >> "$D/$F"
+			# don't quote to trim spaces
+			echo ${REPLY#*:} >> "$D/$F"
 			continue
 		elif [ "$BOUNDARY" ] && [ "${REPLY:0:2}" == '--' ]
 		then
@@ -363,7 +364,8 @@ mime_decode_message()
 	local F="$1/body"
 
 	[ -r "$F" ] && {
-		local T=$(< "$1/content-type") CS='cat'
+		local T CS='cat'
+		T=$(< "$1/content-type")
 
 		case "$T" in
 			[Tt][Ee][Xx][Tt]/*)
@@ -477,7 +479,8 @@ mime_find_message()
 			;;
 	esac 2>/dev/null
 
-	local N PARTS=$(< "$1/parts")
+	local N PARTS
+	PARTS=$(< "$1/parts")
 
 	for (( N=1; N < PARTS; ++N ))
 	do
@@ -505,7 +508,7 @@ mime_message()
 	local C=${1:-mime_display_message}
 
 	[ -r "$MIME_CACHE/parts" ] &&
-		mime_find_message "$MIME_CACHE" $C &&
+		mime_find_message "$MIME_CACHE" "$C" &&
 		return
 
 	[ -r "$MIME_CACHE/content-type" ] && {
@@ -545,26 +548,27 @@ list_messages()
 {
 	pop_open || return
 	pop_request 'UIDL' && {
-		local IDS T=$(mktemp -d "${BIN}.XXXXXXXXXX")
+		local IDS T
+		T=$(mktemp -d "${BIN}.XXXXXXXXXX")
 
 		# read list of unique IDs
 		{
 			local I ID
 			while read -r I ID <&6
 			do
-				[ "$I" == '.'$CR ] && break
+				[ "$I" == ".$CR" ] && break
 				ID=${ID%$CR}
 				IDS[$I]=$ID
-				echo $I > "$T/$ID"
+				echo "$I" > "$T/$ID"
 			done
 		}
 
 		# clean cache by removing all messages not in list
 		{
 			local F
-			for F in "$CACHE/*"
+			for F in "$CACHE/"*
 			do
-				[ -r "$T/$F" ] || rm -rf "$CACHE/$F"
+				[ -r "$T/$F" ] || rm -rf "${CACHE:?}/$F"
 			done
 			rm -rf "$T"
 		}
@@ -576,7 +580,8 @@ list_messages()
 			M=${#M}
 
 			[ "$LIST_FORMAT" ] || {
-				local I=$(for (( N=M+2; N--; )) do echo -n ' '; done)
+				local I
+				I=$(for (( N=M+2; N--; )) do echo -n ' '; done)
 				LIST_FORMAT="%${M}d: %s\n${I}%s\n${I}%s\n\n"
 			}
 
@@ -589,7 +594,7 @@ list_messages()
 
 			if (( $# > 0 ))
 			then
-				L=$@
+				L=$*
 			else
 				L=${!IDS[*]}
 			fi
@@ -599,14 +604,13 @@ list_messages()
 				local ID=${IDS[$N]}
 				[ "$ID" ] || continue
 
-				local FROM= TO= SUBJECT= DATE= READ=
+				local FROM='' TO='' SUBJECT='' DATE=''
 				local F="$CACHE/$ID"
 
 				if [ -d "$F" ]
 				then
 					(( ONLY_NEW )) && continue
 				else
-					local RESPONSE
 					pop_request "TOP $N 0" || break
 					mkdir -p "$F" && MIME_CACHE="$F" mime_parse <&6
 				fi
@@ -619,7 +623,7 @@ list_messages()
 
 				printf \
 					"$LIST_FORMAT" \
-					$N \
+					"$N" \
 					"${FROM:0:$W}" \
 					"${DATE:0:$W}" \
 					"${SUBJECT:0:$W}"
@@ -674,7 +678,7 @@ EOF
 read_message()
 {
 	local MIME_CACHE
-	retrieve_message $1 || return
+	retrieve_message "$1" || return
 	mime_message | less
 }
 
@@ -718,16 +722,19 @@ file_message()
 	local N
 	for N
 	do
-		local T=$(mktemp "${BIN}.XXXXXXXXXX")
+		local T
+		T=$(mktemp "${BIN}.XXXXXXXXXX")
 		pop_request "RETR $N" || break
 		while read -r <&6
 		do
-			[ "$REPLY" == '.'$CR ] && break
+			[ "$REPLY" == ".$CR" ] && break
 			echo "$REPLY" >> "$T"
 		done
 		mime_parse < "$T" && {
-			local FROM=$(decode_encoded_word < "$MIME_CACHE/from")
-			local DATE=$(decode_encoded_word < "$MIME_CACHE/date")
+			local FROM
+			FROM=$(decode_encoded_word < "$MIME_CACHE/from")
+			local DATE
+			DATE=$(decode_encoded_word < "$MIME_CACHE/date")
 
 			[ "$FROM" ] && mv "$T" "$(address "$FROM")-${DATE//[ ,:+-]/}.mbs"
 		} 2>/dev/null
@@ -757,7 +764,7 @@ read_next_message()
 	local NEXT=0 N ID IDS
 	while read -r N ID <&6
 	do
-		[ "$N" == '.'$CR ] && break
+		[ "$N" == ".$CR" ] && break
 		IDS[$N]=${ID%$CR}
 	done
 
@@ -773,7 +780,7 @@ read_next_message()
 		}
 	done
 
-	(( $NEXT )) && read_message $NEXT
+	(( NEXT )) && read_message $NEXT
 }
 
 # Check for new messages and set NEW_MAILS accordingly
@@ -790,7 +797,7 @@ new_messages()
 	local N ID
 	while read -r N ID <&6
 	do
-		[ "$N" == '.'$CR ] && break
+		[ "$N" == ".$CR" ] && break
 		[ -d "$CACHE/${ID%$CR}" ] || (( ++NEW_MAILS ))
 	done
 
@@ -832,14 +839,14 @@ write_message()
 			echo "To         : $TO"
 		done
 	else
-		local TO=
+		local TO=''
 
 		while [ -z "$TO" ]
 		do
 			read -r -p 'To         : ' -e TO || return
 		done
 
-		set ${TO//,/ }
+		set "${TO//,/ }"
 	fi
 
 	if [ "$SUBJECT" ]
@@ -869,7 +876,7 @@ write_message()
 				A[$N]=$REPLY
 			done
 		done
-		ATTACHMENTS=${A[@]}
+		ATTACHMENTS=${A[*]}
 	}
 
 	if [ "$BODY" ]
@@ -887,11 +894,11 @@ write_message()
 		do
 			smtp_request "MAIL FROM: <$(address "$SMTP_ACCOUNT")>" || break
 
-			local R RECIPIENTS=
+			local R RECIPIENTS=''
 			for R
 			do
 				smtp_request "RCPT TO: <$(address "$R")>" || {
-					RECIPIENTS=
+					RECIPIENTS=''
 					break
 				}
 				RECIPIENTS=$RECIPIENTS${RECIPIENTS:+, }$R
@@ -899,15 +906,18 @@ write_message()
 
 			[ "$RECIPIENTS" ] || break
 
-			local MESSAGE_ID="$(date +%s).$SMTP_ACCOUNT"
-			local MESSAGE="From: $SMTP_ACCOUNT
+			local MESSAGE_ID
+			MESSAGE_ID="$(date +%s).$SMTP_ACCOUNT"
+			local MESSAGE
+			MESSAGE="From: $SMTP_ACCOUNT
 To: $RECIPIENTS
 Subject: $SUBJECT
-Date: $(LANG= date +"%a, %d %b %Y %H:%M:%S %z")
+Date: $(LANG='' date +"%a, %d %b %Y %H:%M:%S %z")
 Message-ID: <$MESSAGE_ID>
 MIME-Version: 1.0"
 
-			BODY=$(echo "$BODY" | while read -r -n 76; do echo "$REPLY"; done)
+			BODY=$(echo "$BODY" |
+				while read -r -n 76; do echo "$REPLY"; done)
 
 			[ "$SIGNATURE" ] && BODY=$BODY"
 
@@ -1008,7 +1018,7 @@ answer_message()
 # @param 2 - question phrase
 config_prompt()
 {
-	local REPLY= PRESET= DEFAULT=
+	local REPLY='' PRESET='' DEFAULT=''
 
 	eval "DEFAULT=\$$1"
 
@@ -1124,18 +1134,18 @@ expand_range()
 
 		# intercept 0 and "" (when skipped)
 		if [ -z "$START" ] ||
-			(( ! $START )); then
+			(( ! START )); then
 			START=1
 		fi
 
 		# intercept 0, "" and check if valid
 		if [ -z "$STOP" ] ||
 			(( ! "$STOP" )) ||
-			(( $STOP > $MAILS )); then
+			(( STOP > MAILS )); then
 			STOP=$MAILS
 		fi
 
-		(( $START == $STOP )) && {
+		(( START == STOP )) && {
 			echo "$N"
 			continue
 		}
@@ -1181,7 +1191,7 @@ EOF
 		s*)
 			local STATUS MAILS SIZE FORMAT=${FORMAT:-"%d mails (%d bytes)\n"}
 			status &&
-				printf "$FORMAT" $MAILS $SIZE
+				printf "$FORMAT" "$MAILS" "$SIZE"
 			;;
 		n*)
 			list_messages 'new'
@@ -1216,7 +1226,7 @@ EOF
 			local N
 			for N in $(expand_range "$@")
 			do
-				read_message $N
+				read_message "$N"
 			done
 			;;
 		x*)
@@ -1275,7 +1285,7 @@ readonly CACHE="$HOME/.${BIN}cache"
 readonly CR=$'\r'
 
 # read configuration
-[ -r $CONFIG ] && . "$CONFIG"
+[ -r "$CONFIG" ] && . "$CONFIG"
 
 POP_PORT=${POP_PORT:-110}
 SMTP_PORT=${SMTP_PORT:-25}
