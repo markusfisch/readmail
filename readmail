@@ -32,6 +32,8 @@ pop_close()
 # Open connection to pop box and login
 pop_open()
 {
+	# POP_HOST is not a misspelling
+	# shellcheck disable=SC2153
 	exec 6<>/dev/tcp/"$POP_HOST"/"$POP_PORT" ||
 		return 1
 
@@ -85,6 +87,8 @@ smtp_close()
 # Open connection to smtp server and log on
 smtp_open()
 {
+	# SMTP_HOST is not a misspelling
+	# shellcheck disable=SC2153
 	exec 7<>/dev/tcp/"$SMTP_HOST"/"$SMTP_PORT" ||
 		return 1
 
@@ -123,6 +127,8 @@ decode_quoted_printable()
 			then
 				REPLY=${REPLY:1}
 			else
+				# format must be a variable
+				# shellcheck disable=SC2059
 				printf \\x"${REPLY:0:2}"
 				REPLY=${REPLY:2}
 			fi
@@ -308,6 +314,7 @@ mime_parse()
 			esac
 
 			# don't quote to trim spaces
+			# shellcheck disable=SC2086
 			echo ${REPLY#*:} >> "$D/$F"
 			continue
 		elif [ "$BOUNDARY" ] && [ "${REPLY:0:2}" == '--' ]
@@ -621,6 +628,8 @@ list_messages()
 					SUBJECT=$(decode_encoded_word < "$F/subject")
 				} 2>/dev/null
 
+				# LIST_FORMAT should be configurable
+				# shellcheck disable=SC2059
 				printf \
 					"$LIST_FORMAT" \
 					"$N" \
@@ -649,6 +658,8 @@ retrieve_message()
 		# read ID
 		{
 			local OK I ID
+			# OK is unused but required to consume "OK"
+			# shellcheck disable=SC2034
 			read -r OK I ID <<EOF
 $REPLY
 EOF
@@ -1185,11 +1196,15 @@ EOF
 			;;
 		p*)
 			local NEW_MAILS FORMAT=${FORMAT:-"%d new mails\n"}
+			# FORMAT should be configurable
+			# shellcheck disable=SC2059
 			new_messages &&
 				printf "$FORMAT" $NEW_MAILS
 			;;
 		s*)
 			local STATUS MAILS SIZE FORMAT=${FORMAT:-"%d mails (%d bytes)\n"}
+			# FORMAT should be configurable
+			# shellcheck disable=SC2059
 			status &&
 				printf "$FORMAT" "$MAILS" "$SIZE"
 			;;
@@ -1198,14 +1213,20 @@ EOF
 			;;
 		t*)
 			shift
+			# STATUS is set in status()
+			# shellcheck disable=SC2034
 			local STATUS MAILS SIZE
 			status && (( MAILS )) && {
 				(( (MAILS -= ${1:-2}) < 1 )) && MAILS=1
+				# range must be word splitted
+				# shellcheck disable=SC2046
 				list_messages $(expand_range "${MAILS}-")
 			}
 			;;
 		l*)
 			shift
+			# range must be word splitted
+			# shellcheck disable=SC2046
 			list_messages $(expand_range "$@")
 			;;
 		d*)
@@ -1214,6 +1235,8 @@ EOF
 			# because the following indices will change after
 			# a message is deleted, it is very important to
 			# sort them reversely
+			# range must be word splitted
+			# shellcheck disable=SC2046
 			delete_messages $(expand_range "$@" | sort -r)
 			;;
 		r*)
@@ -1224,6 +1247,8 @@ EOF
 
 			shift
 			local N
+			# range must be word splitted
+			# shellcheck disable=SC2046
 			for N in $(expand_range "$@")
 			do
 				read_message "$N"
@@ -1232,16 +1257,22 @@ EOF
 		x*)
 			(( $# < 2 )) && return
 			shift
+			# range must be word splitted
+			# shellcheck disable=SC2046
 			extract_attachments $(expand_range "$@")
 			;;
 		f*)
 			(( $# < 2 )) && return
 			shift
+			# range must be word splitted
+			# shellcheck disable=SC2046
 			file_message $(expand_range "$@")
 			;;
 		a*)
 			(( $# < 2 )) && return
 			shift
+			# range must be word splitted
+			# shellcheck disable=SC2046
 			answer_message $(expand_range "$@")
 			;;
 		w*)
@@ -1285,6 +1316,7 @@ readonly CACHE="$HOME/.${BIN}cache"
 readonly CR=$'\r'
 
 # read configuration
+# shellcheck source=/dev/null
 [ -r "$CONFIG" ] && . "$CONFIG"
 
 POP_PORT=${POP_PORT:-110}
