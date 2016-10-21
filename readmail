@@ -491,17 +491,17 @@ mime_find_message()
 
 	for (( N=1; N < PARTS; ++N ))
 	do
-		local P="$1/part-$N"
+		local PART="$1/part-$N"
 
-		[ -r "$P/body" ] &&
-			mime_content_is_text "$P/content-type" && {
-				$2 "$P"
+		[ -r "$PART/body" ] &&
+			mime_content_is_text "$PART/content-type" && {
+				$2 "$PART"
 				(( TYPE == 2 )) || return 0
 			}
 
 		(( TYPE == 2 )) && return 0
 
-		[ -r "$P/parts" ] && mime_find_message "$P" "$2" && return 0
+		[ -r "$PART/parts" ] && mime_find_message "$PART" "$2" && return 0
 	done
 
 	return 1
