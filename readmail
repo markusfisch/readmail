@@ -7,8 +7,7 @@
 # Send request and read succeeding response
 #
 # @param ... - request
-pop_request()
-{
+pop_request() {
 	echo "$@" >&6
 	read -r <&6
 
@@ -21,8 +20,7 @@ pop_request()
 }
 
 # Logout and close connection to pop box
-pop_close()
-{
+pop_close() {
 	pop_request 'QUIT'
 
 	exec 6<&-
@@ -30,8 +28,7 @@ pop_close()
 }
 
 # Open connection to pop box and login
-pop_open()
-{
+pop_open() {
 	# POP_HOST is not a misspelling
 	# shellcheck disable=SC2153
 	exec 6<>/dev/tcp/"$POP_HOST"/"$POP_PORT" ||
@@ -57,8 +54,7 @@ pop_open()
 # Send request and read succeeding response
 #
 # @param ... - request
-smtp_request()
-{
+smtp_request() {
 	echo "$@" >&7
 
 	for ((;;))
@@ -76,8 +72,7 @@ smtp_request()
 }
 
 # Close connection to smtp server and log off
-smtp_close()
-{
+smtp_close() {
 	smtp_request 'QUIT'
 
 	exec 7<&-
@@ -85,8 +80,7 @@ smtp_close()
 }
 
 # Open connection to smtp server and log on
-smtp_open()
-{
+smtp_open() {
 	# SMTP_HOST is not a misspelling
 	# shellcheck disable=SC2153
 	exec 7<>/dev/tcp/"$SMTP_HOST"/"$SMTP_PORT" ||
@@ -114,13 +108,12 @@ smtp_open()
 ##############################################################################
 
 # Decode quoted-printable-encoded stream
-decode_quoted_printable()
-{
+decode_quoted_printable() {
 	local C=0 EOF=0
 
 	while (( ! EOF ))
 	do
-		read -r -d '=' || EOF=1
+		read -rd '=' || EOF=1
 
 		(( C )) &&
 			if [[ $REPLY == [$'\r'$'\n']* ]]
@@ -139,8 +132,7 @@ decode_quoted_printable()
 }
 
 # Decode MIME encoded-word syntax
-decode_encoded_word()
-{
+decode_encoded_word() {
 	while read -r
 	do
 		while [[ $REPLY == *'=?'* ]]
@@ -170,11 +162,11 @@ decode_encoded_word()
 	done
 }
 
-which iconv &>/dev/null || iconv() {
+command -v iconv &>/dev/null || iconv() {
 	cat
 }
 
-if which base64 &>/dev/null
+if command -v base64 &>/dev/null
 then
 	# GNU and BSD base64 command line flags are incompatible
 	if base64 --version 2>&1 | grep GNU &>/dev/null
@@ -200,8 +192,7 @@ fi
 #
 # @param 1 - string
 # @param 2 - pattern of key
-value()
-{
+value() {
 	[[ "$1" == *$2* ]] || {
 		VALUE=
 		return
@@ -230,8 +221,7 @@ value()
 # Echo eMail address from long format
 #
 # @param 1 - eMail address in long format
-address()
-{
+address() {
 	local A=$1
 
 	[[ $A == *\<* ]] && {
@@ -247,8 +237,7 @@ address()
 ##############################################################################
 
 # Parse message in MIME format and create a temporary cache directory
-mime_parse()
-{
+mime_parse() {
 	MIME_CACHE=${MIME_CACHE:-$(mktemp -d "${BIN}.XXXXXXXXXX")}
 
 	local D=$MIME_CACHE
@@ -357,8 +346,7 @@ mime_parse()
 }
 
 # Free MIME data structure
-mime_free()
-{
+mime_free() {
 	rm -rf "$MIME_CACHE"
 	MIME_CACHE=
 }
@@ -366,8 +354,7 @@ mime_free()
 # Decode possibly encoded message text
 #
 # @param 1 - message directory
-mime_decode_message()
-{
+mime_decode_message() {
 	local F="$1/body"
 
 	[ -r "$F" ] && {
@@ -400,8 +387,7 @@ mime_decode_message()
 # Display message with header information
 #
 # @param 1 - message directory
-mime_display_message()
-{
+mime_display_message() {
 	# echo headers
 	{
 		local H HEADERS=${HEADERS:-from to subject date attachments}
@@ -441,7 +427,7 @@ mime_display_message()
 			local N L=${#S} LABEL=$H
 			for (( N=0; N < L; N += W ))
 			do
-				printf "%-${M}s %-${W}s\n" "$LABEL" "${S:$N:$W}"
+				printf "%-${M}s %-${W}s\\n" "$LABEL" "${S:$N:$W}"
 				LABEL=
 			done
 		done
@@ -455,8 +441,7 @@ mime_display_message()
 # Returns true if content type is text
 #
 # @param 1 - file with content type
-mime_content_is_text()
-{
+mime_content_is_text() {
 	case "$(< "$1")" in
 		*[Tt][Ee][Xx][Tt]/[Pp][Ll][Aa][Ii][Nn]*|\
 		*[Tt][Ee][Xx][Tt]/[Hh][Tt][Mm][Ll]*)
@@ -471,8 +456,7 @@ mime_content_is_text()
 #
 # @param 1 - directory in MIME tree
 # @param 2 - callback function
-mime_find_message()
-{
+mime_find_message() {
 	(( $# < 2 )) && return 1
 
 	local TYPE=0
@@ -510,8 +494,7 @@ mime_find_message()
 # Echo message from MIME data structure
 #
 # @param 1 - callback function (optional)
-mime_message()
-{
+mime_message() {
 	local C=${1:-mime_display_message}
 
 	[ -r "$MIME_CACHE/parts" ] &&
@@ -531,8 +514,7 @@ mime_message()
 ##############################################################################
 
 # Return current mailbox status in STATUS, MAILS and SIZE
-status()
-{
+status() {
 	pop_open || return 1
 	pop_request 'STAT' || {
 		pop_close
@@ -551,8 +533,7 @@ EOF
 # List message
 #
 # @param ... - list of message indices (optional)
-list_messages()
-{
+list_messages() {
 	pop_open || return
 	pop_request 'UIDL' && {
 		local IDS T
@@ -589,7 +570,7 @@ list_messages()
 			[ "$LIST_FORMAT" ] || {
 				local I
 				I=$(for (( N=M+2; N--; )) do echo -n ' '; done)
-				LIST_FORMAT="%${M}d: %s\n${I}%s\n${I}%s\n\n"
+				LIST_FORMAT="%${M}d: %s\\n${I}%s\\n${I}%s\\n\\n"
 			}
 
 			local N ONLY_NEW=0 W=$(( ${WIDTH:-80}-(M+2) ))
@@ -646,8 +627,7 @@ list_messages()
 # Retrieve message and set MIME_CACHE
 #
 # @param 1 - index of message to retrieve
-retrieve_message()
-{
+retrieve_message() {
 	[ "$1" ] || return
 	pop_open || return
 
@@ -686,8 +666,7 @@ EOF
 # Display a message
 #
 # @param 1 - index of message to show
-read_message()
-{
+read_message() {
 	local MIME_CACHE
 	retrieve_message "$1" || return
 	mime_message | less
@@ -696,13 +675,12 @@ read_message()
 # Extract attachments
 #
 # @param ... - list of message indices
-extract_attachments()
-{
+extract_attachments() {
 	local N
 	for N
 	do
 		local MIME_CACHE
-		retrieve_message $N || continue
+		retrieve_message "$N" || continue
 
 		[ -r "$MIME_CACHE/attachments" ] && {
 			local F
@@ -725,8 +703,7 @@ extract_attachments()
 # File message
 #
 # @param ... - list of message indices
-file_message()
-{
+file_message() {
 	(( $# > 0 )) || return
 	pop_open || return
 
@@ -757,8 +734,7 @@ file_message()
 }
 
 # Read next new message
-read_next_message()
-{
+read_next_message() {
 	[ -d "$CACHE" ] || {
 		local STATUS MAILS SIZE
 		status || return
@@ -791,12 +767,11 @@ read_next_message()
 		}
 	done
 
-	(( NEXT )) && read_message $NEXT
+	(( NEXT )) && read_message "$NEXT"
 }
 
 # Check for new messages and set NEW_MAILS accordingly
-new_messages()
-{
+new_messages() {
 	pop_open || return 1
 	pop_request 'UIDL' || {
 		pop_close
@@ -819,8 +794,7 @@ new_messages()
 # Delete messages from server
 #
 # @param ... - list of indices of messages to delete
-delete_messages()
-{
+delete_messages() {
 	pop_open || return
 
 	local N
@@ -835,8 +809,7 @@ delete_messages()
 # Write a message
 #
 # @param ... - recipients (optional)
-write_message()
-{
+write_message() {
 	local SUBJECT=${SUBJECT:-}
 	local BODY=${BODY:-}
 	local ATTACHMENTS=${ATTACHMENTS:-}
@@ -854,7 +827,7 @@ write_message()
 
 		while [ -z "$TO" ]
 		do
-			read -r -p 'To         : ' -e TO || return
+			read -erp 'To         : ' TO || return
 		done
 
 		set "${TO//,/ }"
@@ -864,14 +837,14 @@ write_message()
 	then
 		echo "Subject    : $SUBJECT"
 	else
-		read -r -p 'Subject    : ' -e SUBJECT
+		read -erp 'Subject    : ' SUBJECT
 	fi
 
 	if [ "$ATTACHMENTS" ]
 	then
 		echo "Attachments: $ATTACHMENTS"
 	else
-		read -r -p 'Attachments: ' -e ATTACHMENTS
+		read -erp 'Attachments: ' ATTACHMENTS
 	fi
 
 	[ "$ATTACHMENTS" ] && {
@@ -880,7 +853,7 @@ write_message()
 		do
 			while ! [ -r "${A[$N]}" ]
 			do
-				read -r -p "${A[$N]} not found, try again: " -e || {
+				read -erp "${A[$N]} not found, try again: " || {
 					A[$N]=
 					break
 				}
@@ -928,7 +901,7 @@ Message-ID: <$MESSAGE_ID>
 MIME-Version: 1.0"
 
 			BODY=$(echo "$BODY" |
-				while read -r -n 76; do echo "$REPLY"; done)
+				while read -rn 76; do echo "$REPLY"; done)
 
 			[ "$SIGNATURE" ] && BODY=$BODY"
 
@@ -990,9 +963,8 @@ $BODY
 # Quote message
 #
 # @param 1 - directory in MIME tree
-quote_message()
-{
-	mime_decode_message "$1" | while read -r -n 76
+quote_message() {
+	mime_decode_message "$1" | while read -rn 76
 	do
 		echo "> $REPLY"
 	done
@@ -1001,8 +973,7 @@ quote_message()
 # Answer a message
 #
 # @param ... -  message indices
-answer_message()
-{
+answer_message() {
 	local N MIME_CACHE FROM SUBJECT QUOTE
 	for N
 	do
@@ -1027,19 +998,23 @@ answer_message()
 #
 # @param 1 - name of the setting
 # @param 2 - question phrase
-config_prompt()
-{
-	local REPLY='' PRESET='' DEFAULT=''
+config_prompt() {
+	local REPLY=
+	local PRESET=
+	local DEFAULT=
+	local SILENT_FLAG=
 
 	eval "DEFAULT=\$$1"
 
 	[ "$DEFAULT" ] && PRESET=" [$DEFAULT]"
 	[ "$OPTIONAL" ] && PRESET="$PRESET (optional)"
-	[ "$PASSWORD" ] && PASSWORD='-s'
+	[ "$PASSWORD" ] && SILENT_FLAG='-s'
 
 	while [ -z "$REPLY" ]
 	do
-		read -r $PASSWORD -p "$2$PRESET: " -e || break
+		# SILENT_FLAG contains an additional flag
+		# shellcheck disable=SC2229
+		read -erp "$2$PRESET: " $SILENT_FLAG || break
 
 		[ "$REPLY" ] || {
 			[ "$OPTIONAL" ] && break
@@ -1051,15 +1026,13 @@ config_prompt()
 		[ "$OPTIONAL" ] && return
 	}
 
-	[ "$VOLATILE" ] ||
-		echo "$1='$REPLY'" >> "$CONFIG"
+	[ "$VOLATILE" ] || echo "$1='$REPLY'" >> "$CONFIG"
 
 	eval "$1=\$REPLY"
 }
 
 # Check configuration
-config_check()
-{
+config_check() {
 	[ "$POP_HOST" ] &&
 		[ "$POP_ACCOUNT" ] &&
 		[ "$SMTP_HOST" ] &&
@@ -1097,7 +1070,7 @@ EOF
 	fi
 
 	local ANSWER
-	read -r -e ANSWER
+	read -re ANSWER
 
 	case "$ANSWER" in
 		[Yy]*|'')
@@ -1130,8 +1103,7 @@ EOF
 # Expand ranges
 #
 # @param ... - a range of numbers
-expand_range()
-{
+expand_range() {
 	local STATUS MAILS SIZE
 	status || return
 
@@ -1172,8 +1144,7 @@ expand_range()
 #
 # @param 1 - some command
 # @param ... - command arguments
-run()
-{
+run() {
 	case "$1" in
 		h*|\?*)
 			cat <<EOF
@@ -1195,14 +1166,14 @@ run()
 EOF
 			;;
 		p*)
-			local NEW_MAILS FORMAT=${FORMAT:-"%d new mails\n"}
+			local NEW_MAILS FORMAT=${FORMAT:-"%d new mails\\n"}
 			# FORMAT should be configurable
 			# shellcheck disable=SC2059
 			new_messages &&
-				printf "$FORMAT" $NEW_MAILS
+				printf "$FORMAT" "$NEW_MAILS"
 			;;
 		s*)
-			local STATUS MAILS SIZE FORMAT=${FORMAT:-"%d mails (%d bytes)\n"}
+			local STATUS MAILS SIZE FORMAT=${FORMAT:-"%d mails (%d bytes)\\n"}
 			# FORMAT should be configurable
 			# shellcheck disable=SC2059
 			status &&
@@ -1316,7 +1287,7 @@ readonly CACHE="$HOME/.${BIN}cache"
 readonly CR=$'\r'
 
 # read configuration
-# shellcheck source=/dev/null
+# shellcheck disable=SC1090
 [ -r "$CONFIG" ] && . "$CONFIG"
 
 POP_PORT=${POP_PORT:-110}
@@ -1329,11 +1300,14 @@ config_check || exit 1
 # process command line arguments
 for CMD
 do
-	run $CMD
+	run "$CMD"
 done
 
-# interactive operation
-while read -r -p "$POP_ACCOUNT> " -e
-do
-	run $REPLY
-done
+if [ "${BASH_SOURCE[0]}" == "$0" ]
+then
+	# interactive operation
+	while read -erp "$POP_ACCOUNT> "
+	do
+		run "$REPLY"
+	done
+fi
